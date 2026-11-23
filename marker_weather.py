@@ -266,10 +266,57 @@ class Widget:
         self.refresh()
 
     def show_about(self):
-        from tkinter import messagebox
-        messagebox.showinfo('O aplikacji',
-            'MarkerWeather\\n\\nAplikację stworzył Przemysław Michalski\\n'
-            'Kontakt: primoszm@gmail.com',parent=self.root)
+        """Ciemny, nieprzezroczysty panel informacji zamiast systemowego messagebox."""
+        self.dismiss_menu()
+        bg='#191c22'
+        fg='#f4f5f7'
+        muted='#afb6c3'
+        border='#858b94'
+        blue='#36aaff'
+
+        about=tk.Toplevel(self.root)
+        about.withdraw()
+        about.overrideredirect(True)
+        about.configure(bg=border)
+        about.attributes('-alpha',1.0)
+        about.attributes('-topmost',True)
+        about.resizable(False,False)
+
+        frame=tk.Frame(about,bg=bg)
+        frame.pack(fill='both',expand=True,padx=1,pady=1)
+        heading=tk.Frame(frame,bg=bg)
+        heading.pack(fill='x',padx=18,pady=(15,5))
+        tk.Label(heading,text='ⓘ',font=('Segoe UI Symbol',17),
+                 fg=blue,bg=bg).pack(side='left')
+        tk.Label(heading,text='O aplikacji',font=('Segoe UI',12,'bold'),
+                 fg=fg,bg=bg).pack(side='left',padx=(10,0))
+        tk.Button(heading,text='✕',font=('Segoe UI',12),fg=muted,bg=bg,
+                  activeforeground=fg,activebackground='#303640',
+                  bd=0,relief='flat',command=about.destroy,
+                  cursor='hand2').pack(side='right')
+        tk.Frame(frame,bg='#50545a',height=1).pack(fill='x',padx=18,pady=(2,12))
+        tk.Label(frame,text='MarkerWheater stworzył:',
+                 font=('Segoe UI',11),fg=fg,bg=bg,anchor='w').pack(fill='x',padx=23)
+        tk.Label(frame,text='Przemysław Michalski',
+                 font=('Segoe UI',12,'bold'),fg=fg,bg=bg,anchor='w').pack(fill='x',padx=23,pady=(7,0))
+        tk.Label(frame,text='primoszm@gmail.com',
+                 font=('Segoe UI',11),fg=blue,bg=bg,anchor='w').pack(fill='x',padx=23,pady=(5,16))
+        tk.Button(frame,text='Zamknij',font=('Segoe UI',10),
+                  fg=fg,bg='#303640',activeforeground=fg,
+                  activebackground='#414b59',relief='flat',bd=0,
+                  padx=16,pady=6,command=about.destroy,
+                  cursor='hand2').pack(anchor='e',padx=18,pady=(0,15))
+        about.bind('<Escape>',lambda e:about.destroy())
+        about.update_idletasks()
+        w,h=335,about.winfo_reqheight()
+        x=self.root.winfo_rootx()+(self.root.winfo_width()-w)//2
+        y=self.root.winfo_rooty()+max(15,(self.root.winfo_height()-h)//2)
+        x=max(0,min(x,about.winfo_screenwidth()-w))
+        y=max(0,min(y,about.winfo_screenheight()-h))
+        about.geometry(f'{w}x{h}+{x}+{y}')
+        about.deiconify()
+        about.lift()
+        about.focus_force()
 
     def set_theme(self,theme):
         if theme not in ('standard','landscape','city'):return
@@ -599,14 +646,14 @@ class Widget:
         if self.error:centered(self.error[:32],469,13,YELLOW)
         # Przycisk odświeżania w miejscu wskazanym czerwonym prostokątem.
         # Mały symbol w prawym dolnym rogu sekcji opisu pogody.
-        cx,cy=350,454
+        cx,cy=348,449
         d.arc((cx-11,cy-11,cx+11,cy+11),start=40,end=325,
               fill='#f3f5f8',width=3)
         d.polygon([(cx+10,cy-11),(cx+13,cy-2),(cx+3,cy-5)],
                   fill='#f3f5f8')
         self.tkimg=ImageTk.PhotoImage(im);self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
         # Niewidoczny obszar klikalny 38×38 px; nie zmienia układu widżetu.
-        self.canvas.create_rectangle(331,435,369,473,fill='',outline='',tags=('refresh_button',))
+        self.canvas.create_rectangle(329,430,367,468,fill='',outline='',tags=('refresh_button',))
         self.canvas.tag_bind('refresh_button','<Button-1>',self.click_refresh)
         self.canvas.tag_bind('refresh_button','<Enter>',lambda e:self.canvas.configure(cursor='hand2'))
         self.canvas.tag_bind('refresh_button','<Leave>',lambda e:self.canvas.configure(cursor=''))
