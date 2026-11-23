@@ -1,0 +1,24 @@
+MARKER WEATHER - AUTOMATYCZNE TWORZENIE EXE W GITHUB ACTIONS
+
+1. Zaloguj sie na https://github.com i utworz nowe repozytorium (New repository).
+   Nazwa: MarkerWeather, widocznosc: Public (GitHub Actions dziala tez w prywatnych repozytoriach w ramach limitow konta).
+2. W repozytorium wybierz Add file > Upload files.
+3. Przeslij pliki marker_weather.py, requirements.txt oraz folder .github/workflows
+   z zachowaniem struktury katalogow. UWAGA: github.com w przegladarce moze
+   nie zachowac ukrytego folderu .github przy zwyklym uploadzie.
+   Najpewniejsza metoda: na stronie repozytorium nacisnij klawisz '.'
+   (otworzy edytor github.dev), przeciagniij wszystkie pliki/foldery
+   z rozpakowanego ZIP do eksploratora po lewej, a potem Commit & Push.
+4. Otworz zakladke Actions, wybierz "Zbuduj MarkerWeather.exe".
+   Jesli trzeba, wlacz Actions w repozytorium.
+5. Kliknij Run workflow, nastepnie zielony przycisk Run workflow.
+6. Poczekaj na zakonczenie zadania. Otworz ukonczony przebieg i w sekcji
+   Artifacts pobierz MarkerWeather-Windows-EXE.zip.
+7. Rozpakuj ZIP. W srodku znajdziesz MarkerWeather.exe.
+   Uruchom dwuklikiem - Python nie jest potrzebny.
+
+UWAGI:
+- To workflow buduje natywny EXE na serwerze Windows. Nie uruchamia testow.
+- EXE nie ma podpisu cyfrowego, wiec Windows SmartScreen moze pokazac ostrzezenie.
+- Do pobierania pogody potrzebne jest polaczenie internetowe (Open-Meteo).
+- Zegar korzysta z czasu ustawionego w systemie Windows.
