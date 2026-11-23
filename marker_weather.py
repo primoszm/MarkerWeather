@@ -77,29 +77,129 @@ class Widget:
     def __init__(self):
         self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x700+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
         self.canvas=tk.Canvas(self.root,width=W,height=H,highlightthickness=0,bg='#111111');self.canvas.pack()
-        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.background_cache={};self.theme_fade_from=None;self.theme_fade_start=0;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None;self.photo=None;self.photo_meta=None;self.photo_city=None;self.photo_busy=False;self.photo_request=0
+        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.background_cache={};self.theme_fade_from=None;self.theme_fade_start=0;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None;self.photo=None;self.photo_meta=None;self.photo_city=None;self.photo_busy=False;self.photo_request=0;self.menu_panel=None;self.appearance_open=True
         try:
             with open(CONFIG,encoding='utf8') as f:
                 c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))));self.theme=c.get('theme','standard') if c.get('theme','standard') in ('standard','landscape','city') else 'standard'
         except (OSError,ValueError,TypeError):pass
         self.root.attributes('-alpha',self.opacity/100)
         self.root.bind('<ButtonPress-1>',self.drag_start);self.root.bind('<B1-Motion>',self.drag_move)
-        self.root.bind('<Button-3>',self.menu);self.root.bind('<Escape>',lambda e:self.root.destroy())
+        self.canvas.bind('<Button-1>',self.dismiss_menu)
+        self.root.bind('<Button-3>',self.menu);self.root.bind('<Escape>',self.escape_menu)
         self.root.bind('<Double-Button-1>',lambda e:self.change_city())
         self.tkimg=None;self.tick();self.refresh();self.ensure_city_photo();self.root.mainloop()
     def drag_start(self,e):self.dx=e.x_root-self.root.winfo_x();self.dy=e.y_root-self.root.winfo_y()
     def drag_move(self,e):self.root.geometry(f'+{e.x_root-self.dx}+{e.y_root-self.dy}')
-    def menu(self,e):
-        m=tk.Menu(self.root,tearoff=0);m.add_command(label='Zmień miasto',command=self.change_city);m.add_command(label='Odśwież pogodę',command=self.refresh)
-        appearance=tk.Menu(m,tearoff=0)
-        appearance.add_command(label=('✓ ' if self.theme=='standard' else '   ')+'Standardowy — ciemny gradient',command=lambda:self.set_theme('standard'))
-        for key,label in [('landscape','Graficzny'),('city','Miasto')]:
-            appearance.add_command(label=('✓ ' if self.theme==key else '   ')+label,command=lambda k=key:self.set_theme(k))
-        m.add_cascade(label='Wygląd aplikacji',menu=appearance)
+    def escape_menu(self,e=None):
+        if self.menu_panel is not None:self.dismiss_menu()
+        else:self.root.destroy()
+
+    def dismiss_menu(self,e=None):
+        if self.menu_panel is not None:
+            self.menu_panel.destroy()
+            self.menu_panel=None
+            self.root.attributes('-alpha',self.opacity/100)
+
+    def menu(self,e=None):
+        """Wbudowany, nieprzezroczysty panel na widżecie, bez Toplevel."""
+        self.dismiss_menu()
+        bg='#191c22';hover='#303640';fg='#f4f5f7';muted='#afb6c3';blue='#36aaff'
+        panel=tk.Frame(self.root,bg='#81858c',bd=0)
+        self.menu_panel=panel
+        self.root.attributes('-alpha',1.0)  # Menu ma zawsze pełne krycie.
+        panel.place(x=42,y=85,width=316,height=530)
+        inside=tk.Frame(panel,bg=bg)
+        inside.place(x=1,y=1,width=314,height=528)
+
+        def row(text,icon,command,active=False):
+            f=tk.Frame(inside,bg=hover if active else bg,height=35)
+            f.pack(fill='x',padx=10,pady=1)
+            f.pack_propagate(False)
+            symbol=tk.Label(f,text=icon,font=('Segoe UI Symbol',15),fg=blue if active else fg,
+                            bg=hover if active else bg,width=3,anchor='center')
+            symbol.pack(side='left')
+            label=tk.Label(f,text=text,font=('Segoe UI',12),fg=fg,bg=hover if active else bg,anchor='w')
+            label.pack(side='left',fill='both',expand=True,padx=4)
+            for w in (f,symbol,label):
+                w.bind('<Button-1>',lambda event,fn=command:fn())
+            return f
+
+        row('Ustawienia','⚙',lambda:None)
+        def toggle_appearance():
+            self.appearance_open=not self.appearance_open
+            self.menu()
+        row('Wygląd aplikacji  '+('⌄' if self.appearance_open else '›'),'▣',toggle_appearance,True)
+        if self.appearance_open:
+            for key,name,subtitle in [
+                ('standard','Standardowy','Ciemny, klasyczny układ'),
+                ('landscape','Graficzny','Ilustrowana wersja z tłem'),
+                ('city','Miasto','Zdjęcia wybranego miasta')]:
+                f=tk.Frame(inside,bg=bg,height=43)
+                f.pack(fill='x',padx=12)
+                f.pack_propagate(False)
+                chosen=self.theme==key
+                dot=tk.Label(f,text='◉' if chosen else '◯',font=('Segoe UI Symbol',18),
+                             fg=blue if chosen else fg,bg=bg,width=3)
+                dot.pack(side='left',padx=(8,0))
+                content=tk.Frame(f,bg=bg)
+                content.pack(side='left',fill='both',expand=True)
+                name_label=tk.Label(content,text=name,font=('Segoe UI',11),fg=fg,bg=bg,anchor='w')
+                name_label.pack(fill='x')
+                subtitle_label=tk.Label(content,text=subtitle,font=('Segoe UI',8,'italic'),
+                                        fg=muted,bg=bg,anchor='w')
+                subtitle_label.pack(fill='x')
+                for w in (f,dot,content,name_label,subtitle_label):
+                    w.bind('<Button-1>',lambda event,k=key:self.choose_menu_theme(k))
+        tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=6)
+        row('Zawsze na wierzchu  '+('✓' if self.top else '○'),'⌁',self.menu_toggle_top)
+        row('Zmień miasto','⌖',self.menu_change_city)
+        row('Odśwież pogodę','↻',self.menu_refresh)
         if self.theme=='city':
-            m.add_command(label='Źródło zdjęcia miasta / licencja',command=self.photo_credit)
-        m.add_command(label='Zawsze na wierzchu: '+('TAK' if self.top else 'NIE'),command=self.toggle_top);m.add_command(label='Przezroczystość…',command=self.opacity_dialog);m.add_separator();m.add_command(label='Zamknij',command=self.root.destroy)
-        m.tk_popup(e.x_root,e.y_root)
+            row('Źródło zdjęcia','ⓘ',self.photo_credit)
+        tk.Label(inside,text='Przezroczystość',font=('Segoe UI',11),fg=fg,bg=bg,
+                 anchor='w').pack(fill='x',padx=20,pady=(5,0))
+        slider_line=tk.Frame(inside,bg=bg)
+        slider_line.pack(fill='x',padx=16)
+        value=tk.Label(slider_line,text=f'{self.opacity}%',font=('Segoe UI',10),
+                       fg=muted,bg=bg,width=5)
+        value.pack(side='right')
+        def update_opacity(val):
+            self.opacity=int(float(val))
+            # Krycie widżetu zostanie zastosowane po zamknięciu menu.
+            value.configure(text=f'{self.opacity}%')
+            self.save_config()
+        slider=tk.Scale(slider_line,from_=30,to=100,orient='horizontal',showvalue=False,
+                        command=update_opacity,bg=bg,fg=fg,highlightthickness=0,
+                        troughcolor='#414852',activebackground=blue,
+                        length=225,sliderlength=16,bd=0)
+        slider.set(self.opacity)
+        slider.pack(side='left')
+        tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=(2,3))
+        row('O aplikacji','ⓘ',self.show_about)
+        row('Zamknij','✕',self.root.destroy)
+
+    def choose_menu_theme(self,theme):
+        self.set_theme(theme)
+        self.menu()
+
+    def menu_toggle_top(self):
+        self.toggle_top()
+        self.menu()
+
+    def menu_change_city(self):
+        self.dismiss_menu()
+        self.change_city()
+
+    def menu_refresh(self):
+        self.dismiss_menu()
+        self.refresh()
+
+    def show_about(self):
+        from tkinter import messagebox
+        messagebox.showinfo('O aplikacji',
+            'MarkerWeather\\n\\nAplikację stworzył Przemysław Michalski\\n'
+            'Kontakt: primoszm@gmail.com',parent=self.root)
+
     def set_theme(self,theme):
         if theme not in ('standard','landscape','city'):return
         if theme==self.theme and theme=='city':
@@ -182,15 +282,8 @@ class Widget:
                 json.dump({'city':self.city,'lat':self.lat,'lon':self.lon,'opacity':self.opacity,'theme':self.theme},f,ensure_ascii=False)
         except OSError:pass
     def opacity_dialog(self):
-        dlg=tk.Toplevel(self.root);dlg.title('Przezroczystość');dlg.geometry('320x145');dlg.resizable(False,False)
-        dlg.attributes('-topmost',True)
-        lbl=tk.Label(dlg,text=f'Widoczność okna: {self.opacity}%');lbl.pack(pady=(12,0))
-        def update(value):
-            self.opacity=int(float(value));self.root.attributes('-alpha',self.opacity/100)
-            lbl.configure(text=f'Widoczność okna: {self.opacity}%');self.save_config()
-        scale=tk.Scale(dlg,from_=30,to=100,orient='horizontal',resolution=1,length=275,showvalue=False,command=update)
-        scale.set(self.opacity);scale.pack()
-        tk.Button(dlg,text='Gotowe',command=dlg.destroy).pack(pady=3)
+        self.menu()
+
     def change_city(self):
         dlg=tk.Toplevel(self.root);dlg.title('Wybierz miasto');dlg.geometry('310x115');dlg.resizable(False,False);dlg.attributes('-topmost',True)
         tk.Label(dlg,text='Wpisz nazwę miasta:').pack(pady=(10,3));v=tk.StringVar(value=self.city);entry=tk.Entry(dlg,textvariable=v,width=34);entry.pack();entry.focus_set()
@@ -507,93 +600,135 @@ class Widget:
             for yy in (56,69):line([(-55,yy),(55,yy)],'#dedede',3)
 
     def draw_anime_3d_icon(self,d,kind,x,y,scale):
-        """Miękkie, przestrzenne ikony anime 3D dla motywów graficznych.
-        Render w wysokiej rozdzielczości + cienie i gradienty; bez dodatkowych plików."""
-        S=2
-        size=200
-        art=Image.new('RGBA',(size*S,size*S),(0,0,0,0))
-        p=ImageDraw.Draw(art,'RGBA')
-        def xy(a,b):return (round((a+100)*S),round((b+100)*S))
-        def ellipse(box,fill,outline=None,width=1):
-            a=xy(box[0],box[1]);b=xy(box[2],box[3])
-            p.ellipse((*a,*b),fill=fill,outline=outline,width=width*S)
-        def sun(cx,cy,r):
-            # Światło wokół tarczy, złote promienie i połysk.
-            for radius,alpha in ((r+17,20),(r+10,32)):
-                ellipse((cx-radius,cy-radius,cx+radius,cy+radius),(255,202,59,alpha))
-            for a in range(0,360,45):
-                t=math.radians(a)
-                a1=xy(cx+math.cos(t)*(r+6),cy+math.sin(t)*(r+6))
-                a2=xy(cx+math.cos(t)*(r+17),cy+math.sin(t)*(r+17))
-                p.line((a1,a2),fill=(255,210,65,255),width=5*S)
-            ellipse((cx-r,cy-r,cx+r,cy+r),(255,187,35,255))
-            ellipse((cx-r+3,cy-r+3,cx+r-3,cy+r-3),(255,216,75,255))
-            ellipse((cx-r+7,cy-r+5,cx+1,cy-2),(255,247,189,220))
-        if kind=='sun':
-            sun(0,0,29)
-        elif kind=='moon':
-            ellipse((-36,-36,36,36),(233,223,184,255))
-            ellipse((-33,-35,31,31),(255,246,207,255))
-            ellipse((-10,-44,44,15),(0,0,0,0))
-            # Maska wycinająca półksiężyc
-            cut=Image.new('L',art.size,0)
-            cd=ImageDraw.Draw(cut)
-            cd.ellipse((*xy(-8,-47),*xy(47,14)),fill=255)
-            art.putalpha(ImageChops.subtract(art.getchannel('A'),cut))
-            p=ImageDraw.Draw(art,'RGBA')
-            ellipse((-23,-22,-14,-13),(255,255,255,145))
-        else:
-            if kind=='cloud':sun(31,-26,21)
-            # Chmura o wypukłej bryle: cień, gradient i refleks.
-            mask=Image.new('L',art.size,0)
-            m=ImageDraw.Draw(mask)
-            def bubble(b):m.ellipse((*xy(b[0],b[1]),*xy(b[2],b[3])),fill=255)
-            bubble((-64,-8,-8,44))
-            bubble((-40,-37,31,43))
-            bubble((8,-12,66,43))
-            m.rounded_rectangle((*xy(-61,12),*xy(63,43)),radius=17*S,fill=255)
-            shadow=Image.new('RGBA',art.size,(0,0,0,0))
-            shadow.putalpha(mask.filter(ImageFilter.GaussianBlur(8*S)).point(lambda a:round(a*.45)))
-            art.alpha_composite(shadow,(3*S,8*S))
-            gradient=Image.new('RGBA',art.size,(0,0,0,0))
-            gp=gradient.load()
-            for yy in range(art.height):
-                for xx in range(art.width):
-                    v=yy/art.height
-                    # Biało-lawendowa góra, chłodny błękitny spód.
-                    gp[xx,yy]=(int(241-85*v),int(247-77*v),int(255-56*v),255)
-            gradient.putalpha(mask)
-            art.alpha_composite(gradient)
-            rim=Image.new('RGBA',art.size,(255,255,255,0))
-            rim.putalpha(mask.filter(ImageFilter.MaxFilter(7*S)).getchannel('A') if False else mask)
-            # Połyski w górnej lewej części chmury.
-            p=ImageDraw.Draw(art,'RGBA')
-            p.arc((*xy(-46,-29),*xy(12,15)),195,325,fill=(255,255,255,190),width=4*S)
-            p.arc((*xy(-58,-2),*xy(-18,27)),195,275,fill=(255,255,255,130),width=3*S)
-            p.arc((*xy(22,-7),*xy(59,25)),240,320,fill=(255,255,255,125),width=3*S)
-            if kind in ('rain','storm'):
-                for dx in (-39,0,39):
-                    a=xy(dx,53);b=xy(dx-11,73)
-                    p.line((a,b),fill=(33,122,223,140),width=9*S)
-                    p.line((xy(dx-2,52),xy(dx-13,72)),fill=(93,210,255,255),width=6*S)
-                    p.ellipse((*xy(dx-6,54),*xy(dx-1,61)),fill=(227,250,255,170))
-            if kind=='snow':
-                for dx in (-38,0,38):
-                    for a in (0,60,120):
-                        t=math.radians(a)
-                        p.line((xy(dx-10*math.cos(t),65-10*math.sin(t)),
-                                xy(dx+10*math.cos(t),65+10*math.sin(t))),
-                               fill=(242,252,255,255),width=4*S)
-            if kind=='storm':
-                p.polygon([xy(12,44),xy(-12,68),xy(4,68),xy(-5,87),xy(27,58),xy(10,58)],
-                          fill=(255,214,49,255))
-            if kind=='fog':
-                for yy in (56,70):
-                    p.line((xy(-54,yy),xy(54,yy)),fill=(226,240,255,220),width=5*S)
-        # Antyaliasing i kompozycja bezpośrednio na obrazie widżetu.
-        side=max(10,round(200*scale))
-        icon=art.resize((side,side),Image.Resampling.LANCZOS)
-        d._image.paste(icon,(round(x-side/2),round(y-side/2)),icon)
+        """Przestrzenne ikony anime 3D inspirowane dostarczonym wzorem.
+        Renderowane lokalnie, z miękkimi chmurami, słońcem i błękitnymi kroplami."""
+        if not hasattr(self,'anime_icon_cache'):self.anime_icon_cache={}
+        cache_key=(kind,round(scale,3))
+        icon=self.anime_icon_cache.get(cache_key)
+        if icon is None:
+            import random
+            S=3
+            dim=200*S
+            art=Image.new('RGBA',(dim,dim),(0,0,0,0))
+            def xy(a,b):return (round((a+100)*S),round((b+100)*S))
+            def ellipse(draw,b,fill,width=1,outline=None):
+                draw.ellipse((*xy(b[0],b[1]),*xy(b[2],b[3])),
+                             fill=fill,outline=outline,width=max(1,round(width*S)))
+            def sun(cx,cy,r):
+                glow=Image.new('RGBA',art.size,(0,0,0,0))
+                gd=ImageDraw.Draw(glow,'RGBA')
+                for radius,alpha in ((r+38,10),(r+29,22),(r+20,38),(r+12,58)):
+                    ellipse(gd,(cx-radius,cy-radius,cx+radius,cy+radius),(255,181,22,alpha))
+                glow=glow.filter(ImageFilter.GaussianBlur(7*S))
+                art.alpha_composite(glow)
+                rays=Image.new('RGBA',art.size,(0,0,0,0))
+                rd=ImageDraw.Draw(rays,'RGBA')
+                for angle in range(0,360,20):
+                    t=math.radians(angle)
+                    r1=r+5;r2=r+(28 if angle%40==0 else 18)
+                    rd.polygon([xy(cx+math.cos(t-.055)*r1,cy+math.sin(t-.055)*r1),
+                                xy(cx+math.cos(t)*r2,cy+math.sin(t)*r2),
+                                xy(cx+math.cos(t+.055)*r1,cy+math.sin(t+.055)*r1)],
+                               fill=(255,190,32,235))
+                art.alpha_composite(rays.filter(ImageFilter.GaussianBlur(1.0*S)))
+                disk=Image.new('RGBA',art.size,(0,0,0,0))
+                dp=ImageDraw.Draw(disk,'RGBA')
+                ellipse(dp,(cx-r,cy-r,cx+r,cy+r),(255,174,12,255))
+                ellipse(dp,(cx-r+3,cy-r+3,cx+r-4,cy+r-5),(255,215,40,255))
+                ellipse(dp,(cx-r+7,cy-r+5,cx+r-13,cy+4),(255,241,119,200))
+                art.alpha_composite(disk)
+            if kind=='sun':
+                sun(0,0,31)
+            elif kind=='moon':
+                sun(0,0,29)
+                # Złoty księżyc zamiast tarczy słońca.
+                mask=Image.new('L',art.size,0)
+                md=ImageDraw.Draw(mask)
+                ellipse(md,(-34,-34,34,34),255)
+                ellipse(md,(-8,-47,49,13),0)
+                moon=Image.new('RGBA',art.size,(0,0,0,0))
+                mp=ImageDraw.Draw(moon,'RGBA')
+                ellipse(mp,(-34,-34,34,34),(255,237,184,255))
+                moon.putalpha(mask)
+                art=moon
+            else:
+                if kind in ('cloud','rain','storm'):
+                    # Tak jak na wzorze: słońce wyłania się zza chmur.
+                    sun(-27,-25,26 if kind!='cloud' else 25)
+                # Miękki cień za chmurą.
+                mask=Image.new('L',art.size,0)
+                md=ImageDraw.Draw(mask)
+                parts=[(-70,1,-23,44),(-57,-21,-1,46),(-32,-40,30,44),
+                       (5,-29,56,43),(30,-6,72,42)]
+                for box in parts:ellipse(md,box,255)
+                md.rounded_rectangle((*xy(-65,16),*xy(67,43)),radius=16*S,fill=255)
+                shadow=Image.new('RGBA',art.size,(0,0,0,0))
+                shadow.putalpha(mask.filter(ImageFilter.GaussianBlur(7*S)).point(lambda v:round(v*.42)))
+                art.alpha_composite(shadow,(0,7*S))
+                # Głęboki granat na spodzie, chłodny błękit pośrodku, lawenda na szczycie.
+                cloud=Image.new('RGBA',art.size,(0,0,0,0))
+                pixels=cloud.load()
+                for yy in range(36*S,150*S):
+                    yy0=yy/S-100
+                    t=max(0,min(1,(yy0+38)/87))
+                    for xx in range(20*S,180*S):
+                        xx0=xx/S-100
+                        highlight=max(0,1-math.hypot((xx0+28)*.9,(yy0+23)*1.1)/73)
+                        shade=max(0,1-math.hypot((xx0-30)*.7,(yy0-13)*.9)/75)
+                        rr=int(max(25,min(255,230-119*t+29*highlight-31*shade)))
+                        gg=int(max(35,min(255,237-105*t+23*highlight-17*shade)))
+                        bb=int(max(65,min(255,255-62*t+8*highlight)))
+                        pixels[xx,yy]=(rr,gg,bb,255)
+                cloud.putalpha(mask)
+                art.alpha_composite(cloud)
+                # Puchate, wypukłe refleksy, delikatne światło od góry.
+                highlights=Image.new('RGBA',art.size,(0,0,0,0))
+                hp=ImageDraw.Draw(highlights,'RGBA')
+                for b in [(-54,-16,-18,6),(-29,-32,5,-8),(4,-22,32,-3),
+                          (30,-7,53,9),(-55,10,-31,26),(-17,0,14,20)]:
+                    ellipse(hp,b,(244,248,255,87))
+                art.alpha_composite(highlights.filter(ImageFilter.GaussianBlur(6*S)))
+                # Osobne zaokrąglone fałdy chmury dają efekt 3D.
+                folds=Image.new('RGBA',art.size,(0,0,0,0))
+                fp=ImageDraw.Draw(folds,'RGBA')
+                for b in [(-57,12,-28,33),(-31,9,4,32),(4,7,33,32),(33,13,57,34)]:
+                    ellipse(fp,b,(64,122,185,60))
+                art.alpha_composite(folds.filter(ImageFilter.GaussianBlur(4*S)))
+                if kind in ('rain','storm'):
+                    drops=Image.new('RGBA',art.size,(0,0,0,0))
+                    dp=ImageDraw.Draw(drops,'RGBA')
+                    for dx,dy in [(-51,51),(-28,58),(-3,50),(20,59),(45,50)]:
+                        # Ukośne błękitne krople, grube i z jasnym połyskiem.
+                        dp.line((xy(dx,dy),xy(dx-13,dy+23)),fill=(22,117,207,200),width=8*S)
+                        dp.line((xy(dx-2,dy),xy(dx-14,dy+22)),fill=(45,190,255,255),width=5*S)
+                        ellipse(dp,(dx-5,dy-1,dx-1,dy+4),(213,250,255,195))
+                    art.alpha_composite(drops)
+                if kind=='snow':
+                    snow=Image.new('RGBA',art.size,(0,0,0,0))
+                    sd=ImageDraw.Draw(snow,'RGBA')
+                    for dx in (-42,-4,34):
+                        for deg in (0,60,120):
+                            t=math.radians(deg)
+                            sd.line((xy(dx-9*math.cos(t),65-9*math.sin(t)),
+                                     xy(dx+9*math.cos(t),65+9*math.sin(t))),
+                                    fill=(241,250,255,255),width=3*S)
+                    art.alpha_composite(snow)
+                if kind=='storm':
+                    bolt=Image.new('RGBA',art.size,(0,0,0,0))
+                    bp=ImageDraw.Draw(bolt,'RGBA')
+                    bp.polygon([xy(12,40),xy(-10,64),xy(3,64),xy(-7,84),
+                                xy(26,54),xy(10,55)],fill=(255,211,39,255))
+                    art.alpha_composite(bolt)
+                if kind=='fog':
+                    fog=Image.new('RGBA',art.size,(0,0,0,0))
+                    fd=ImageDraw.Draw(fog,'RGBA')
+                    for yy in (54,68):
+                        fd.line((xy(-49,yy),xy(49,yy)),fill=(222,239,255,220),width=5*S)
+                    art.alpha_composite(fog)
+            side=max(10,round(200*scale))
+            icon=art.resize((side,side),Image.Resampling.LANCZOS)
+            self.anime_icon_cache[cache_key]=icon
+        d._image.paste(icon,(round(x-icon.width/2),round(y-icon.height/2)),icon)
 
     def draw_small_icon(self,d,kind,x,y):
         if self.theme in ('landscape','city'):self.draw_anime_3d_icon(d,kind,x,y-4,0.31)
