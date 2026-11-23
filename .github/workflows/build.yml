@@ -1,1 +1,27 @@
-
+name: Zbuduj MarkerWeather.exe
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Zainstaluj zaleznosci
+        run: python -m pip install --upgrade pip pillow pyinstaller
+      - name: Zbuduj pojedynczy plik EXE
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name MarkerWeather marker_weather.py
+      - name: Udostepnij EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: MarkerWeather-Windows-EXE
+          path: dist/MarkerWeather.exe
+          if-no-files-found: error
