@@ -77,7 +77,7 @@ class Widget:
     def __init__(self):
         self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x700+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
         self.canvas=tk.Canvas(self.root,width=W,height=H,highlightthickness=0,bg='#111111');self.canvas.pack()
-        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.background_cache={};self.theme_fade_from=None;self.theme_fade_start=0;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None;self.photo=None;self.photo_meta=None;self.photo_city=None;self.photo_busy=False;self.photo_request=0;self.menu_panel=None;self.appearance_open=True
+        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.background_cache={};self.theme_fade_from=None;self.theme_fade_start=0;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None;self.photo=None;self.photo_meta=None;self.photo_city=None;self.photo_busy=False;self.photo_request=0;self.menu_panel=None;self.appearance_open=True;self.city_open=False;self.opacity_open=False
         try:
             with open(CONFIG,encoding='utf8') as f:
                 c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))));self.theme=c.get('theme','standard') if c.get('theme','standard') in ('standard','landscape','city') else 'standard'
@@ -95,88 +95,159 @@ class Widget:
         else:self.root.destroy()
 
     def dismiss_menu(self,e=None):
-        if self.menu_panel is not None:
-            self.menu_panel.destroy()
-            self.menu_panel=None
-            self.root.attributes('-alpha',self.opacity/100)
+        panel=self.menu_panel
+        self.menu_panel=None
+        if panel is not None:
+            try:
+                if panel.winfo_exists():panel.destroy()
+            except tk.TclError:pass
 
     def menu(self,e=None):
-        """Wbudowany, nieprzezroczysty panel na widżecie, bez Toplevel."""
+        """Nieprzezroczyste, niezależne menu z rozwijanymi sekcjami."""
+        if e is not None:
+            self.menu_xy=(e.x_root,e.y_root)
         self.dismiss_menu()
         bg='#191c22';hover='#303640';fg='#f4f5f7';muted='#afb6c3';blue='#36aaff'
-        panel=tk.Frame(self.root,bg='#81858c',bd=0)
+        panel=tk.Toplevel(self.root)
         self.menu_panel=panel
-        self.root.attributes('-alpha',1.0)  # Menu ma zawsze pełne krycie.
-        panel.place(x=42,y=85,width=316,height=530)
-        inside=tk.Frame(panel,bg=bg)
-        inside.place(x=1,y=1,width=314,height=528)
+        panel.withdraw()
+        panel.overrideredirect(True)
+        panel.configure(bg='#858b94')
+        panel.attributes('-alpha',1.0)
+        panel.attributes('-topmost',True)
+        panel.resizable(False,False)
+        panel.bind('<Escape>',self.dismiss_menu)
+        panel.bind('<FocusOut>',lambda ev:self.root.after(160,self.dismiss_if_unfocused))
+        inside=tk.Frame(panel,bg=bg,width=318)
+        inside.pack(fill='both',expand=True,padx=1,pady=1)
+        inside.pack_propagate(True)
 
         def row(text,icon,command,active=False):
-            f=tk.Frame(inside,bg=hover if active else bg,height=35)
+            color=hover if active else bg
+            f=tk.Frame(inside,bg=color,height=35)
             f.pack(fill='x',padx=10,pady=1)
             f.pack_propagate(False)
             symbol=tk.Label(f,text=icon,font=('Segoe UI Symbol',15),fg=blue if active else fg,
-                            bg=hover if active else bg,width=3,anchor='center')
+                            bg=color,width=3,anchor='center')
             symbol.pack(side='left')
-            label=tk.Label(f,text=text,font=('Segoe UI',12),fg=fg,bg=hover if active else bg,anchor='w')
+            label=tk.Label(f,text=text,font=('Segoe UI',11),fg=fg,bg=color,anchor='w')
             label.pack(side='left',fill='both',expand=True,padx=4)
             for w in (f,symbol,label):
                 w.bind('<Button-1>',lambda event,fn=command:fn())
             return f
 
-        row('Ustawienia','⚙',lambda:None)
-        def toggle_appearance():
-            self.appearance_open=not self.appearance_open
+        def toggle(section):
+            setattr(self,section,not getattr(self,section))
             self.menu()
-        row('Wygląd aplikacji  '+('⌄' if self.appearance_open else '›'),'▣',toggle_appearance,True)
+
+        row('Ustawienia','⚙',lambda:None)
+        row('Wygląd aplikacji  '+('⌄' if self.appearance_open else '›'),
+            '▣',lambda:toggle('appearance_open'),True)
         if self.appearance_open:
             for key,name,subtitle in [
-                ('standard','Standardowy','Ciemny, klasyczny układ'),
-                ('landscape','Graficzny','Ilustrowana wersja z tłem'),
-                ('city','Miasto','Zdjęcia wybranego miasta')]:
-                f=tk.Frame(inside,bg=bg,height=43)
+                ('standard','Standardowy',''),
+                ('landscape','Graficzny',''),
+                ('city','Miasto','')]:
+                f=tk.Frame(inside,bg=bg,height=35)
                 f.pack(fill='x',padx=12)
                 f.pack_propagate(False)
                 chosen=self.theme==key
-                dot=tk.Label(f,text='◉' if chosen else '◯',font=('Segoe UI Symbol',18),
+                dot=tk.Label(f,text='◉' if chosen else '◯',font=('Segoe UI Symbol',17),
                              fg=blue if chosen else fg,bg=bg,width=3)
                 dot.pack(side='left',padx=(8,0))
-                content=tk.Frame(f,bg=bg)
-                content.pack(side='left',fill='both',expand=True)
-                name_label=tk.Label(content,text=name,font=('Segoe UI',11),fg=fg,bg=bg,anchor='w')
-                name_label.pack(fill='x')
-                subtitle_label=tk.Label(content,text=subtitle,font=('Segoe UI',8,'italic'),
-                                        fg=muted,bg=bg,anchor='w')
-                subtitle_label.pack(fill='x')
-                for w in (f,dot,content,name_label,subtitle_label):
+                name_label=tk.Label(f,text=name,font=('Segoe UI',11),fg=fg,bg=bg,anchor='w')
+                name_label.pack(side='left',fill='both',expand=True)
+                for w in (f,dot,name_label):
                     w.bind('<Button-1>',lambda event,k=key:self.choose_menu_theme(k))
-        tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=6)
+
+        tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=5)
         row('Zawsze na wierzchu  '+('✓' if self.top else '○'),'⌁',self.menu_toggle_top)
-        row('Zmień miasto','⌖',self.menu_change_city)
-        row('Odśwież pogodę','↻',self.menu_refresh)
+
+        row('Wybierz miasto  '+('⌄' if self.city_open else '›'),'⌖',
+            lambda:toggle('city_open'),self.city_open)
+        if self.city_open:
+            city_box=tk.Frame(inside,bg=bg)
+            city_box.pack(fill='x',padx=22,pady=(3,7))
+            city_label=tk.Label(city_box,text='Wpisz nazwę miasta:',font=('Segoe UI',9),
+                                fg=muted,bg=bg,anchor='w')
+            city_label.pack(fill='x')
+            city_entry=tk.Entry(city_box,font=('Segoe UI',11),bg='#343a43',fg=fg,
+                                insertbackground=fg,relief='flat',bd=5)
+            city_entry.insert(0,self.city)
+            city_entry.pack(fill='x',pady=3)
+            def submit_city(event=None):
+                name=city_entry.get().strip()
+                if name:
+                    self.dismiss_menu()
+                    self.lookup(name)
+            city_entry.bind('<Return>',submit_city)
+            apply_btn=tk.Button(city_box,text='Ustaw miasto',command=submit_city,
+                                font=('Segoe UI',10),bg='#344e70',fg=fg,
+                                activebackground='#3a689c',activeforeground=fg,
+                                relief='flat',cursor='hand2')
+            apply_btn.pack(anchor='e',pady=(1,0))
+
+        row('Przezroczystość  '+str(self.opacity)+'%  '+
+            ('⌄' if self.opacity_open else '›'),'◐',
+            lambda:toggle('opacity_open'),self.opacity_open)
+        if self.opacity_open:
+            slider_line=tk.Frame(inside,bg=bg)
+            slider_line.pack(fill='x',padx=18,pady=(0,7))
+            value=tk.Label(slider_line,text=f'{self.opacity}%',font=('Segoe UI',10),
+                           fg=muted,bg=bg,width=5)
+            value.pack(side='right')
+            def update_opacity(val):
+                self.opacity=int(float(val))
+                self.root.attributes('-alpha',self.opacity/100)
+                value.configure(text=f'{self.opacity}%')
+                self.save_config()
+            slider=tk.Scale(slider_line,from_=30,to=100,orient='horizontal',
+                            showvalue=False,command=update_opacity,
+                            bg=bg,fg=fg,highlightthickness=0,
+                            troughcolor='#414852',activebackground=blue,
+                            length=230,sliderlength=16,bd=0)
+            slider.set(self.opacity)
+            slider.pack(side='left')
+
+        tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=5)
+        about_line=tk.Frame(inside,bg=bg,height=36)
+        about_line.pack(fill='x',padx=12)
+        about_line.pack_propagate(False)
+        about=tk.Button(about_line,text='ⓘ  O aplikacji',font=('Segoe UI',11),
+                        fg=fg,bg=bg,activebackground=hover,
+                        activeforeground=fg,relief='flat',bd=0,anchor='w',
+                        command=self.show_about,cursor='hand2')
+        about.pack(side='left',fill='both',expand=True)
         if self.theme=='city':
-            row('Źródło zdjęcia','ⓘ',self.photo_credit)
-        tk.Label(inside,text='Przezroczystość',font=('Segoe UI',11),fg=fg,bg=bg,
-                 anchor='w').pack(fill='x',padx=20,pady=(5,0))
-        slider_line=tk.Frame(inside,bg=bg)
-        slider_line.pack(fill='x',padx=16)
-        value=tk.Label(slider_line,text=f'{self.opacity}%',font=('Segoe UI',10),
-                       fg=muted,bg=bg,width=5)
-        value.pack(side='right')
-        def update_opacity(val):
-            self.opacity=int(float(val))
-            # Krycie widżetu zostanie zastosowane po zamknięciu menu.
-            value.configure(text=f'{self.opacity}%')
-            self.save_config()
-        slider=tk.Scale(slider_line,from_=30,to=100,orient='horizontal',showvalue=False,
-                        command=update_opacity,bg=bg,fg=fg,highlightthickness=0,
-                        troughcolor='#414852',activebackground=blue,
-                        length=225,sliderlength=16,bd=0)
-        slider.set(self.opacity)
-        slider.pack(side='left')
-        tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=(2,3))
-        row('O aplikacji','ⓘ',self.show_about)
+            photo=tk.Button(about_line,text='ⓘ  Źródło zdjęcia',
+                            font=('Segoe UI',9),fg=fg,bg=bg,
+                            activebackground=hover,activeforeground=fg,
+                            relief='flat',bd=0,command=self.photo_credit,
+                            cursor='hand2')
+            photo.pack(side='right')
         row('Zamknij','✕',self.root.destroy)
+
+        panel.update_idletasks()
+        w=320
+        h=inside.winfo_reqheight()+2
+        x,y=getattr(self,'menu_xy',(self.root.winfo_rootx()+70,self.root.winfo_rooty()+90))
+        screen_w=panel.winfo_screenwidth();screen_h=panel.winfo_screenheight()
+        x=max(0,min(x,screen_w-w));y=max(0,min(y,screen_h-h))
+        panel.geometry(f'{w}x{h}+{x}+{y}')
+        panel.deiconify()
+        panel.lift()
+        panel.focus_force()
+
+    def dismiss_if_unfocused(self):
+        panel=self.menu_panel
+        if panel is None:return
+        try:
+            focused=panel.focus_get()
+            # Nie zamykaj podczas przesuwania suwaka ani po kliknięciu w menu.
+            if focused is None or (focused!=panel and not str(focused).startswith(str(panel))):
+                self.dismiss_menu()
+        except tk.TclError:pass
+
 
     def choose_menu_theme(self,theme):
         self.set_theme(theme)
@@ -526,7 +597,25 @@ class Widget:
                 if low:self.draw_centered(d,low,x+28,673,11,'#aaaaaa')
             else:self.draw_centered(d,'—',x,625,19,WHITE)
         if self.error:centered(self.error[:32],469,13,YELLOW)
+        # Przycisk odświeżania w miejscu wskazanym czerwonym prostokątem.
+        # Mały symbol w prawym dolnym rogu sekcji opisu pogody.
+        cx,cy=350,454
+        d.arc((cx-11,cy-11,cx+11,cy+11),start=40,end=325,
+              fill='#f3f5f8',width=3)
+        d.polygon([(cx+10,cy-11),(cx+13,cy-2),(cx+3,cy-5)],
+                  fill='#f3f5f8')
         self.tkimg=ImageTk.PhotoImage(im);self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
+        # Niewidoczny obszar klikalny 38×38 px; nie zmienia układu widżetu.
+        self.canvas.create_rectangle(331,435,369,473,fill='',outline='',tags=('refresh_button',))
+        self.canvas.tag_bind('refresh_button','<Button-1>',self.click_refresh)
+        self.canvas.tag_bind('refresh_button','<Enter>',lambda e:self.canvas.configure(cursor='hand2'))
+        self.canvas.tag_bind('refresh_button','<Leave>',lambda e:self.canvas.configure(cursor=''))
+
+    def click_refresh(self,event=None):
+        self.dismiss_menu()
+        self.refresh()
+        return 'break'
+
     def draw_centered(self,d,txt,x,y,size,color=WHITE,bold=False):
         f=font(size,bold);b=d.textbbox((0,0),txt,font=f)
         d.text((x-(b[2]-b[0])/2,y),txt,font=f,fill=color)
