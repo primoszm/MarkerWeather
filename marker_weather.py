@@ -259,56 +259,58 @@ class Widget:
                 a=math.radians(angle)
                 d.line((x+math.cos(a)*11,y+math.sin(a)*11,x+math.cos(a)*15,y+math.sin(a)*15),fill=YELLOW,width=2)
 
-    def draw_small_icon(self,d,kind,x,y):
-        # Symbole wektorowe zamiast emoji — działają niezależnie od czcionki.
-        if kind in ('sun','cloud'):
-            sx=x if kind=='sun' else x+11;sy=y-5
-            d.ellipse((sx-10,sy-10,sx+10,sy+10),fill=YELLOW)
-            for a in range(0,360,45):
-                t=math.radians(a)
-                d.line((sx+math.cos(t)*14,sy+math.sin(t)*14,sx+math.cos(t)*18,sy+math.sin(t)*18),fill=YELLOW,width=2)
-            if kind=='sun':return
+    def draw_weather_art(self,d,kind,x,y,scale=1.0):
+        """Spójne ikony markerowe: jedna sylwetka chmury, bez linii wewnętrznych."""
+        def pt(dx,dy): return (round(x+dx*scale),round(y+dy*scale))
+        def line(points,color,width):
+            d.line([pt(*p) for p in points],fill=color,width=max(1,round(width*scale)),joint='curve')
+        def sun(sx,sy,r):
+            cx,cy=pt(sx,sy);rr=round(r*scale)
+            d.ellipse((cx-rr,cy-rr,cx+rr,cy+rr),fill='#ffcc21',outline='#ffe88d',width=max(1,round(2*scale)))
+            for deg in range(0,360,45):
+                t=math.radians(deg)
+                line([(sx+math.cos(t)*(r+7),sy+math.sin(t)*(r+7)),(sx+math.cos(t)*(r+17),sy+math.sin(t)*(r+17))],'#ffcc21',4)
+        def cloud():
+            # Rysowanie scalonej sylwetki daje gładki obrys bez nakładających się łuków.
+            mask=Image.new('L',d._image.size,0);md=ImageDraw.Draw(mask)
+            def ellipse(x1,y1,x2,y2):
+                a=pt(x1,y1);b=pt(x2,y2);md.ellipse((*a,*b),fill=255)
+            ellipse(-69,-6,-15,43)
+            ellipse(-43,-33,28,43)
+            ellipse(9,-8,72,43)
+            a=pt(-65,16);b=pt(67,43)
+            md.rounded_rectangle((*a,*b),radius=max(2,round(13*scale)),fill=255)
+            from PIL import ImageChops
+            edge=mask.filter(ImageFilter.MaxFilter(2*max(1,round(3*scale))+1))
+            d._image.paste('#f7f7f7',(0,0),edge)
+            d._image.paste('#9b9da3',(0,0),mask)
+            # delikatne światło na górnej krawędzi
+            line([(-49,0),(-41,-11),(-29,-14)],'#e5e8ee',2)
+        if kind=='sun':sun(0,0,32);return
         if kind=='moon':
-            d.ellipse((x-12,y-16,x+12,y+8),fill='#f1edcf')
-            d.ellipse((x-3,y-20,x+15,y-2),fill='#252525')
+            cx,cy=pt(0,0);r=round(35*scale)
+            d.ellipse((cx-r,cy-r,cx+r,cy+r),fill='#f4f0dc')
+            # półksiężyc
+            off=round(15*scale)
+            d.ellipse((cx-r+off,cy-r-round(12*scale),cx+r+off,cy+r-round(12*scale)),fill='#252525')
             return
-        d.ellipse((x-22,y-9,x-2,y+8),fill='#9b9da3',outline=WHITE,width=2)
-        d.ellipse((x-10,y-17,x+13,y+9),fill='#9b9da3',outline=WHITE,width=2)
-        d.ellipse((x+3,y-8,x+23,y+9),fill='#9b9da3',outline=WHITE,width=2)
-        d.rounded_rectangle((x-21,y,x+22,y+10),radius=5,fill='#9b9da3',outline=WHITE,width=2)
+        if kind=='cloud':sun(35,-22,22)
+        cloud()
         if kind in ('rain','storm'):
-            for dx in (-12,0,12):d.line((x+dx,y+14,x+dx-4,y+23),fill='#72b9ef',width=2)
+            for dx in (-42,0,42):line([(dx,54),(dx-11,72)],'#65bdf4',5)
         if kind=='snow':
-            for dx in (-12,0,12):
-                d.line((x+dx,y+14,x+dx,y+22),fill=WHITE,width=2)
-                d.line((x+dx-3,y+18,x+dx+3,y+18),fill=WHITE,width=2)
-        if kind=='storm':d.line((x+2,y+12,x-5,y+24,x+3,y+22),fill=YELLOW,width=3)
+            for dx in (-40,0,40):
+                for angle in (0,60,120):
+                    t=math.radians(angle)
+                    line([(dx-8*math.cos(t),62-8*math.sin(t)),(dx+8*math.cos(t),62+8*math.sin(t))],WHITE,3)
+        if kind=='storm':line([(8,45),(-8,65),(7,64),(-4,82)],'#ffcc21',6)
         if kind=='fog':
-            for yy in (y+15,y+21):d.line((x-19,yy,x+19,yy),fill='#cccccc',width=2)
+            for yy in (56,69):line([(-55,yy),(55,yy)],'#dedede',3)
+
+    def draw_small_icon(self,d,kind,x,y):
+        self.draw_weather_art(d,kind,x,y-4,0.31)
 
     def draw_icon(self,d,kind):
-        cx,cy=200,267
-        def sun(x,y,r):
-            d.ellipse((x-r,y-r,x+r,y+r),fill=YELLOW,outline='#fff0a3',width=3)
-            for a in range(0,360,45):
-                t=math.radians(a);d.line((x+math.cos(t)*(r+9),y+math.sin(t)*(r+9),x+math.cos(t)*(r+23),y+math.sin(t)*(r+23)),fill=YELLOW,width=5)
-        def cloud(x,y):
-            d.ellipse((x-100,y-10,x-20,y+56),fill='#9b9da3',outline=WHITE,width=5)
-            d.ellipse((x-50,y-40,x+38,y+55),fill='#9b9da3',outline=WHITE,width=5)
-            d.ellipse((x+10,y-5,x+104,y+56),fill='#9b9da3',outline=WHITE,width=5)
-            d.rounded_rectangle((x-92,y+22,x+95,y+57),radius=17,fill='#9b9da3',outline=WHITE,width=4)
-        if kind=='sun':sun(cx,cy,51)
-        elif kind=='moon':
-            d.ellipse((cx-57,cy-57,cx+57,cy+57),fill='#f3f3d6');d.ellipse((cx-22,cy-80,cx+73,cy+18),fill='#242425')
-        else:
-            if kind=='cloud':sun(cx+60,cy-43,38)
-            cloud(cx,cy)
-            if kind in ('rain','storm'):
-                for x in (135,190,245):d.line((x,cy+68,x-13,cy+91),fill='#72b9ef',width=5)
-            if kind=='snow':
-                for x in (140,200,260):d.text((x,cy+65),'✳',font=font(26),fill=WHITE)
-            if kind=='storm':d.line((208,cy+62,185,cy+99,211,cy+95,194,cy+120),fill=YELLOW,width=7)
-            if kind=='fog':
-                for y in (cy+75,cy+90):d.line((95,y,305,y),fill='#c3c3c3',width=4)
+        self.draw_weather_art(d,kind,200,263,1.25)
 
 if __name__=='__main__':Widget()
