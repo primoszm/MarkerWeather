@@ -1,4 +1,4 @@
-import json, math, os, threading, urllib.parse, urllib.request, tkinter as tk
+import json, math, os, threading, urllib.parse, urllib.request, tkinter as tk, time
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
@@ -30,11 +30,12 @@ class Widget:
     def __init__(self):
         self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x600+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
         self.canvas=tk.Canvas(self.root,width=W,height=H,highlightthickness=0,bg='#111111');self.canvas.pack()
-        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False
+        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None
         try:
             with open(CONFIG,encoding='utf8') as f:
-                c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon)
-        except (OSError,ValueError):pass
+                c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))))
+        except (OSError,ValueError,TypeError):pass
+        self.root.attributes('-alpha',self.opacity/100)
         self.root.bind('<ButtonPress-1>',self.drag_start);self.root.bind('<B1-Motion>',self.drag_move)
         self.root.bind('<Button-3>',self.menu);self.root.bind('<Escape>',lambda e:self.root.destroy())
         self.root.bind('<Double-Button-1>',lambda e:self.change_city())
@@ -43,9 +44,24 @@ class Widget:
     def drag_move(self,e):self.root.geometry(f'+{e.x_root-self.dx}+{e.y_root-self.dy}')
     def menu(self,e):
         m=tk.Menu(self.root,tearoff=0);m.add_command(label='Zmień miasto',command=self.change_city);m.add_command(label='Odśwież pogodę',command=self.refresh)
-        m.add_command(label='Zawsze na wierzchu: '+('TAK' if self.top else 'NIE'),command=self.toggle_top);m.add_separator();m.add_command(label='Zamknij',command=self.root.destroy)
+        m.add_command(label='Zawsze na wierzchu: '+('TAK' if self.top else 'NIE'),command=self.toggle_top);m.add_command(label='Przezroczystość…',command=self.opacity_dialog);m.add_separator();m.add_command(label='Zamknij',command=self.root.destroy)
         m.tk_popup(e.x_root,e.y_root)
     def toggle_top(self):self.top=not self.top;self.root.attributes('-topmost',self.top)
+    def save_config(self):
+        try:
+            with open(CONFIG,'w',encoding='utf8') as f:
+                json.dump({'city':self.city,'lat':self.lat,'lon':self.lon,'opacity':self.opacity},f,ensure_ascii=False)
+        except OSError:pass
+    def opacity_dialog(self):
+        dlg=tk.Toplevel(self.root);dlg.title('Przezroczystość');dlg.geometry('320x145');dlg.resizable(False,False)
+        dlg.attributes('-topmost',True)
+        lbl=tk.Label(dlg,text=f'Widoczność okna: {self.opacity}%');lbl.pack(pady=(12,0))
+        def update(value):
+            self.opacity=int(float(value));self.root.attributes('-alpha',self.opacity/100)
+            lbl.configure(text=f'Widoczność okna: {self.opacity}%');self.save_config()
+        scale=tk.Scale(dlg,from_=30,to=100,orient='horizontal',resolution=1,length=275,showvalue=False,command=update)
+        scale.set(self.opacity);scale.pack()
+        tk.Button(dlg,text='Gotowe',command=dlg.destroy).pack(pady=3)
     def change_city(self):
         dlg=tk.Toplevel(self.root);dlg.title('Wybierz miasto');dlg.geometry('310x115');dlg.resizable(False,False);dlg.attributes('-topmost',True)
         tk.Label(dlg,text='Wpisz nazwę miasta:').pack(pady=(10,3));v=tk.StringVar(value=self.city);entry=tk.Entry(dlg,textvariable=v,width=34);entry.pack();entry.focus_set()
@@ -66,9 +82,7 @@ class Widget:
         threading.Thread(target=work,daemon=True).start()
     def set_city(self,name,lat,lon):
         self.city=name;self.lat=lat;self.lon=lon
-        try:
-            with open(CONFIG,'w',encoding='utf8') as f:json.dump({'city':name,'lat':lat,'lon':lon},f,ensure_ascii=False)
-        except OSError:pass
+        self.save_config()
         self.refresh()
     def set_error(self,msg):self.error=msg;self.busy=False;self.render()
     def refresh(self):
@@ -82,8 +96,19 @@ class Widget:
             except Exception:self.root.after(0,lambda:self.set_error('Brak połączenia z pogodą'))
         threading.Thread(target=work,daemon=True).start()
         self.root.after(15*60*1000,self.refresh)
-    def apply(self,data):self.data=data;self.busy=False;self.error='';self.render()
-    def tick(self):self.render();self.root.after(1000,self.tick)
+    def apply(self,data):
+        previous=self.last_kind
+        current=data.get('current',{})
+        new_kind=weather_type(current.get('weather_code',2),current.get('is_day',1))[0]
+        self.data=data;self.busy=False;self.error=''
+        if previous is not None and previous!=new_kind:
+            self.transition_from=previous;self.transition_to=new_kind;self.transition_start=time.monotonic()
+        self.last_kind=new_kind
+        self.render()
+    def tick(self):
+        self.render()
+        active=self.transition_from is not None and time.monotonic()-self.transition_start<1.5
+        self.root.after(70 if active else 1000,self.tick)
     def render(self):
         im=Image.new('RGB',(W,H));px=im.load()
         for y in range(H):
@@ -95,11 +120,25 @@ class Widget:
         def centered(txt,y,size,color=WHITE,bold=False):
             f=font(size,bold);b=d.textbbox((0,0),txt,font=f);d.text(((W-(b[2]-b[0]))/2,y),txt,font=f,fill=color,stroke_width=0)
         now=datetime.now();centered(now.strftime('%H:%M'),24,82,WHITE,True)
-        d.arc((55,114,345,147),180,355,fill=WHITE,width=5)
         centered('⌖  '+self.city,145,27)
         current=self.data.get('current',{}) if self.data else {};daily=self.data.get('daily',{}) if self.data else {}
         kind,desc=weather_type(current.get('weather_code',2),current.get('is_day',1))
-        self.draw_icon(d,kind)
+        if self.transition_from is not None:
+            t=min(1.0,(time.monotonic()-self.transition_start)/1.5)
+            if t>=1.0:
+                self.transition_from=None
+                self.draw_icon(d,kind)
+            else:
+                before=Image.new('RGBA',(W,H),(0,0,0,0))
+                after=Image.new('RGBA',(W,H),(0,0,0,0))
+                self.draw_icon(ImageDraw.Draw(before),self.transition_from)
+                self.draw_icon(ImageDraw.Draw(after),self.transition_to)
+                before.putalpha(before.getchannel('A').point(lambda v:int(v*(1-t))))
+                after.putalpha(after.getchannel('A').point(lambda v:int(v*t)))
+                im=Image.alpha_composite(im.convert('RGBA'),before)
+                im=Image.alpha_composite(im,after).convert('RGB')
+                d=ImageDraw.Draw(im)
+        else:self.draw_icon(d,kind)
         if 'temperature_2m' in current:
             centered(f"{round(current['temperature_2m'])}°C",350,76,WHITE,True)
         else:centered('—°C',350,76,WHITE,True)
@@ -117,7 +156,7 @@ class Widget:
             for j,line in enumerate(val.split('\n')):
                 f2=font(15,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,544+j*20),line,font=f2,fill=WHITE)
         if self.error:centered(self.error[:32],486,13,YELLOW)
-        self.tkimg=ImageTk.PhotoImage(im);self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
+        self.tkimg=ImageTk.PhotoImage(im);self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
     def draw_icon(self,d,kind):
         cx,cy=200,267
         def sun(x,y,r):
@@ -144,3 +183,4 @@ class Widget:
                 for y in (cy+75,cy+90):d.line((95,y,305,y),fill='#c3c3c3',width=4)
 
 if __name__=='__main__':Widget()
+
