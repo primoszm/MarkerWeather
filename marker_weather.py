@@ -208,13 +208,13 @@ class Widget:
         vals=[('WIATR',f'{wind} km/h' if self.data else '—'),('OPADY',f'{chance}%' if chance is not None else '—'),('WILG.',f'{hum}%' if self.data else '—'),('SŁOŃCE',f'{sunrise}\n{sunset}' if sunrise else '—')]
         for i,(lab,val) in enumerate(vals):
             x=i*100+50
-            if i:d.line((i*100,492,i*100,579),fill='#777777',width=1)
+            if i:d.line((i*100,492,i*100,589),fill='#777777',width=1)
             self.draw_detail_icon(d,i,x,508)
             f=font(12,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,531),lab,font=f,fill=YELLOW)
             for j,line in enumerate(val.split('\n')):
                 f2=font(14,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,548+j*17),line,font=f2,fill=WHITE)
         # Prognoza na kolejne cztery dni (bez dnia dzisiejszego).
-        d.line((18,583,382,583),fill='#777777',width=1)
+        d.line((18,598,382,598),fill='#777777',width=1)
         dates=daily.get('time',[])
         codes=daily.get('weather_code',[])
         highs=daily.get('temperature_2m_max',[])
@@ -222,17 +222,17 @@ class Widget:
         weekdays=['Pon','Wt','Śr','Czw','Pt','Sob','Niedz']
         for i in range(4):
             j=i+1; x=50+i*100
-            if i:d.line((i*100,599,i*100,690),fill='#555555',width=1)
+            if i:d.line((i*100,608,i*100,695),fill='#555555',width=1)
             if j<len(dates):
                 try: day=weekdays[datetime.fromisoformat(dates[j]).weekday()]
                 except ValueError:day='—'
-                self.draw_small_icon(d,weather_type(codes[j] if j<len(codes) else 2,True)[0],x,632)
+                self.draw_small_icon(d,weather_type(codes[j] if j<len(codes) else 2,True)[0],x,640)
                 temp=f'{round(highs[j])}°' if j<len(highs) and highs[j] is not None else '—'
                 low=f'{round(lows[j])}°' if j<len(lows) and lows[j] is not None else ''
-                self.draw_centered(d,day,x,592,17,YELLOW,True)
-                self.draw_centered(d,temp,x,660,20,WHITE,True)
-                if low:self.draw_centered(d,low,x+28,667,11,'#aaaaaa')
-            else:self.draw_centered(d,'—',x,615,19,WHITE)
+                self.draw_centered(d,day,x,604,17,YELLOW,True)
+                self.draw_centered(d,temp,x,665,20,WHITE,True)
+                if low:self.draw_centered(d,low,x+28,673,11,'#aaaaaa')
+            else:self.draw_centered(d,'—',x,625,19,WHITE)
         if self.error:centered(self.error[:32],469,13,YELLOW)
         self.tkimg=ImageTk.PhotoImage(im);self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
     def draw_centered(self,d,txt,x,y,size,color=WHITE,bold=False):
