@@ -208,10 +208,11 @@ class Widget:
         vals=[('WIATR',f'{wind} km/h' if self.data else '—'),('OPADY',f'{chance}%' if chance is not None else '—'),('WILG.',f'{hum}%' if self.data else '—'),('SŁOŃCE',f'{sunrise}\n{sunset}' if sunrise else '—')]
         for i,(lab,val) in enumerate(vals):
             x=i*100+50
-            if i:d.line((i*100,521,i*100,584),fill='#777777',width=1)
-            f=font(13,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,520),lab,font=f,fill=YELLOW)
+            if i:d.line((i*100,515,i*100,587),fill='#777777',width=1)
+            self.draw_detail_icon(d,i,x,527)
+            f=font(13,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,541),lab,font=f,fill=YELLOW)
             for j,line in enumerate(val.split('\n')):
-                f2=font(15,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,544+j*20),line,font=f2,fill=WHITE)
+                f2=font(15,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,560+j*17),line,font=f2,fill=WHITE)
         # Prognoza na kolejne cztery dni (bez dnia dzisiejszego).
         d.line((18,593,382,593),fill='#777777',width=1)
         dates=daily.get('time',[])
@@ -237,6 +238,26 @@ class Widget:
     def draw_centered(self,d,txt,x,y,size,color=WHITE,bold=False):
         f=font(size,bold);b=d.textbbox((0,0),txt,font=f)
         d.text((x-(b[2]-b[0])/2,y),txt,font=f,fill=color)
+
+    def draw_detail_icon(self,d,index,x,y):
+        # Ikony z referencji: wiatr, niebieska kropla, konturowa kropla, słońce.
+        blue='#65bdf4'
+        if index==0:
+            for dy,length in ((-7,15),(0,22),(7,17)):
+                yy=y+dy
+                d.line((x-length,yy,x+8,yy),fill=WHITE,width=2)
+                d.arc((x+3,yy-6,x+16,yy+6),270,90,fill=WHITE,width=2)
+        elif index in (1,2):
+            pts=[(x,y-12),(x-9,y+1),(x-8,y+8),(x-4,y+12),(x+4,y+12),(x+8,y+8),(x+9,y+1)]
+            if index==1:d.polygon(pts,fill=blue)
+            else:
+                d.line(pts+[pts[0]],fill=blue,width=2,joint='curve')
+                d.arc((x-4,y+1,x+5,y+9),15,155,fill=blue,width=2)
+        else:
+            d.ellipse((x-8,y-8,x+8,y+8),fill=YELLOW)
+            for angle in range(0,360,45):
+                a=math.radians(angle)
+                d.line((x+math.cos(a)*11,y+math.sin(a)*11,x+math.cos(a)*15,y+math.sin(a)*15),fill=YELLOW,width=2)
 
     def draw_small_icon(self,d,kind,x,y):
         # Symbole wektorowe zamiast emoji — działają niezależnie od czcionki.
