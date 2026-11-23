@@ -2,7 +2,7 @@ import json, math, os, threading, urllib.parse, urllib.request, tkinter as tk, t
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
-W,H=400,600
+W,H=400,700
 WHITE='#f7f7f7'; YELLOW='#ffc928'
 BASE=os.path.dirname(os.path.abspath(__file__))
 CONFIG=os.path.join(os.path.expanduser('~'),'.marker_weather.json')
@@ -28,7 +28,7 @@ def weather_type(code,is_day):
 
 class Widget:
     def __init__(self):
-        self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x600+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
+        self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x700+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
         self.canvas=tk.Canvas(self.root,width=W,height=H,highlightthickness=0,bg='#111111');self.canvas.pack()
         self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None
         try:
@@ -86,16 +86,16 @@ class Widget:
         self.refresh()
     def set_error(self,msg):self.error=msg;self.busy=False;self.render()
     def refresh(self):
+        self.root.after(15*60*1000,self.refresh)
         if self.busy:return
         self.busy=True;self.error='';self.render()
         def work():
             try:
-                q=urllib.parse.urlencode({'latitude':self.lat,'longitude':self.lon,'current':'temperature_2m,relative_humidity_2m,precipitation,weather_code,is_day,wind_speed_10m','daily':'sunrise,sunset,precipitation_probability_max','timezone':'auto','forecast_days':1})
+                q=urllib.parse.urlencode({'latitude':self.lat,'longitude':self.lon,'current':'temperature_2m,relative_humidity_2m,precipitation,weather_code,is_day,wind_speed_10m','daily':'sunrise,sunset,precipitation_probability_max,weather_code,temperature_2m_max,temperature_2m_min','timezone':'auto','forecast_days':5})
                 data=fetch('https://api.open-meteo.com/v1/forecast?'+q)
                 self.root.after(0,lambda:self.apply(data))
             except Exception:self.root.after(0,lambda:self.set_error('Brak połączenia z pogodą'))
         threading.Thread(target=work,daemon=True).start()
-        self.root.after(15*60*1000,self.refresh)
     def apply(self,data):
         previous=self.last_kind
         current=data.get('current',{})
@@ -120,7 +120,7 @@ class Widget:
         def centered(txt,y,size,color=WHITE,bold=False):
             f=font(size,bold);b=d.textbbox((0,0),txt,font=f);d.text(((W-(b[2]-b[0]))/2,y),txt,font=f,fill=color,stroke_width=0)
         now=datetime.now();centered(now.strftime('%H:%M'),24,82,WHITE,True)
-        centered('⌖  '+self.city,145,27)
+        centered(self.city,145,27)
         current=self.data.get('current',{}) if self.data else {};daily=self.data.get('daily',{}) if self.data else {}
         kind,desc=weather_type(current.get('weather_code',2),current.get('is_day',1))
         if self.transition_from is not None:
@@ -155,8 +155,59 @@ class Widget:
             f=font(13,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,520),lab,font=f,fill=YELLOW)
             for j,line in enumerate(val.split('\n')):
                 f2=font(15,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,544+j*20),line,font=f2,fill=WHITE)
+        # Prognoza na kolejne cztery dni (bez dnia dzisiejszego).
+        d.line((18,593,382,593),fill='#777777',width=1)
+        dates=daily.get('time',[])
+        codes=daily.get('weather_code',[])
+        highs=daily.get('temperature_2m_max',[])
+        lows=daily.get('temperature_2m_min',[])
+        weekdays=['Pon','Wt','Śr','Czw','Pt','Sob','Niedz']
+        for i in range(4):
+            j=i+1; x=50+i*100
+            if i:d.line((i*100,610,i*100,688),fill='#555555',width=1)
+            if j<len(dates):
+                try: day=weekdays[datetime.fromisoformat(dates[j]).weekday()]
+                except ValueError:day='—'
+                self.draw_small_icon(d,weather_type(codes[j] if j<len(codes) else 2,True)[0],x,642)
+                temp=f'{round(highs[j])}°' if j<len(highs) and highs[j] is not None else '—'
+                low=f'{round(lows[j])}°' if j<len(lows) and lows[j] is not None else ''
+                self.draw_centered(d,day,x,601,17,YELLOW,True)
+                self.draw_centered(d,temp,x,663,20,WHITE,True)
+                if low:self.draw_centered(d,low,x+28,670,11,'#aaaaaa')
+            else:self.draw_centered(d,'—',x,625,19,WHITE)
         if self.error:centered(self.error[:32],486,13,YELLOW)
         self.tkimg=ImageTk.PhotoImage(im);self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
+    def draw_centered(self,d,txt,x,y,size,color=WHITE,bold=False):
+        f=font(size,bold);b=d.textbbox((0,0),txt,font=f)
+        d.text((x-(b[2]-b[0])/2,y),txt,font=f,fill=color)
+
+    def draw_small_icon(self,d,kind,x,y):
+        # Symbole wektorowe zamiast emoji — działają niezależnie od czcionki.
+        if kind in ('sun','cloud'):
+            sx=x if kind=='sun' else x+11;sy=y-5
+            d.ellipse((sx-10,sy-10,sx+10,sy+10),fill=YELLOW)
+            for a in range(0,360,45):
+                t=math.radians(a)
+                d.line((sx+math.cos(t)*14,sy+math.sin(t)*14,sx+math.cos(t)*18,sy+math.sin(t)*18),fill=YELLOW,width=2)
+            if kind=='sun':return
+        if kind=='moon':
+            d.ellipse((x-12,y-16,x+12,y+8),fill='#f1edcf')
+            d.ellipse((x-3,y-20,x+15,y-2),fill='#252525')
+            return
+        d.ellipse((x-22,y-9,x-2,y+8),fill='#9b9da3',outline=WHITE,width=2)
+        d.ellipse((x-10,y-17,x+13,y+9),fill='#9b9da3',outline=WHITE,width=2)
+        d.ellipse((x+3,y-8,x+23,y+9),fill='#9b9da3',outline=WHITE,width=2)
+        d.rounded_rectangle((x-21,y,x+22,y+10),radius=5,fill='#9b9da3',outline=WHITE,width=2)
+        if kind in ('rain','storm'):
+            for dx in (-12,0,12):d.line((x+dx,y+14,x+dx-4,y+23),fill='#72b9ef',width=2)
+        if kind=='snow':
+            for dx in (-12,0,12):
+                d.line((x+dx,y+14,x+dx,y+22),fill=WHITE,width=2)
+                d.line((x+dx-3,y+18,x+dx+3,y+18),fill=WHITE,width=2)
+        if kind=='storm':d.line((x+2,y+12,x-5,y+24,x+3,y+22),fill=YELLOW,width=3)
+        if kind=='fog':
+            for yy in (y+15,y+21):d.line((x-19,yy,x+19,yy),fill='#cccccc',width=2)
+
     def draw_icon(self,d,kind):
         cx,cy=200,267
         def sun(x,y,r):
@@ -183,4 +234,3 @@ class Widget:
                 for y in (cy+75,cy+90):d.line((95,y,305,y),fill='#c3c3c3',width=4)
 
 if __name__=='__main__':Widget()
-
