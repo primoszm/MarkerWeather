@@ -1,6 +1,6 @@
 import json, math, os, threading, urllib.parse, urllib.request, tkinter as tk, time
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont, ImageTk
+from PIL import Image, ImageDraw, ImageFont, ImageTk, ImageFilter
 
 W,H=400,700
 WHITE='#f7f7f7'; YELLOW='#ffc928'
@@ -30,10 +30,10 @@ class Widget:
     def __init__(self):
         self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x700+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
         self.canvas=tk.Canvas(self.root,width=W,height=H,highlightthickness=0,bg='#111111');self.canvas.pack()
-        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None
+        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None
         try:
             with open(CONFIG,encoding='utf8') as f:
-                c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))))
+                c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))));self.theme=c.get('theme','standard') if c.get('theme','standard') in ('standard','graphic') else 'standard'
         except (OSError,ValueError,TypeError):pass
         self.root.attributes('-alpha',self.opacity/100)
         self.root.bind('<ButtonPress-1>',self.drag_start);self.root.bind('<B1-Motion>',self.drag_move)
@@ -44,13 +44,21 @@ class Widget:
     def drag_move(self,e):self.root.geometry(f'+{e.x_root-self.dx}+{e.y_root-self.dy}')
     def menu(self,e):
         m=tk.Menu(self.root,tearoff=0);m.add_command(label='Zmień miasto',command=self.change_city);m.add_command(label='Odśwież pogodę',command=self.refresh)
+        appearance=tk.Menu(m,tearoff=0)
+        appearance.add_command(label=('✓ ' if self.theme=='standard' else '   ')+'Standardowy — ciemny gradient',command=lambda:self.set_theme('standard'))
+        appearance.add_command(label=('✓ ' if self.theme=='graphic' else '   ')+'Graficzny — pogoda w tle',command=lambda:self.set_theme('graphic'))
+        m.add_cascade(label='Wygląd aplikacji',menu=appearance)
         m.add_command(label='Zawsze na wierzchu: '+('TAK' if self.top else 'NIE'),command=self.toggle_top);m.add_command(label='Przezroczystość…',command=self.opacity_dialog);m.add_separator();m.add_command(label='Zamknij',command=self.root.destroy)
         m.tk_popup(e.x_root,e.y_root)
+    def set_theme(self,theme):
+        if theme not in ('standard','graphic'):return
+        if theme!=self.theme:
+            self.theme=theme;self.save_config();self.render()
     def toggle_top(self):self.top=not self.top;self.root.attributes('-topmost',self.top)
     def save_config(self):
         try:
             with open(CONFIG,'w',encoding='utf8') as f:
-                json.dump({'city':self.city,'lat':self.lat,'lon':self.lon,'opacity':self.opacity},f,ensure_ascii=False)
+                json.dump({'city':self.city,'lat':self.lat,'lon':self.lon,'opacity':self.opacity,'theme':self.theme},f,ensure_ascii=False)
         except OSError:pass
     def opacity_dialog(self):
         dlg=tk.Toplevel(self.root);dlg.title('Przezroczystość');dlg.geometry('320x145');dlg.resizable(False,False)
@@ -109,13 +117,62 @@ class Widget:
         self.render()
         active=self.transition_from is not None and time.monotonic()-self.transition_start<1.5
         self.root.after(70 if active else 1000,self.tick)
-    def render(self):
+    def make_standard_background(self):
         im=Image.new('RGB',(W,H));px=im.load()
         for y in range(H):
             for x in range(W):
                 glow=max(0,1-math.hypot(x-350,(y-180)*0.85)/470)
                 n=int(13+21*(y/H)+21*glow)
                 px[x,y]=(n,n,n+1)
+        return im
+
+    def make_background(self,kind,is_day):
+        # Tło rysowane lokalnie: nie wymaga obrazów ani kluczy API.
+        # Zależne od kodu pogody i dnia/nocy.
+        daylight=bool(is_day)
+        if kind in ('rain','storm','snow','fog'):
+            top=(12,22,42) if daylight else (8,12,27)
+            bottom=(61,75,89) if daylight else (32,38,55)
+        elif kind in ('sun','moon'):
+            top=(24,56,94) if daylight else (9,15,39)
+            bottom=(139,112,89) if daylight else (39,43,73)
+        else:
+            top=(23,44,73) if daylight else (13,20,42)
+            bottom=(95,97,103) if daylight else (43,48,65)
+        im=Image.new('RGB',(W,H));px=im.load()
+        for y in range(H):
+            t=y/(H-1)
+            for x in range(W):
+                glow=max(0,1-math.hypot(x-315,y-245)/490)*0.16
+                px[x,y]=tuple(min(255,int(a*(1-t)+b*t+glow*35)) for a,b in zip(top,bottom))
+        layer=Image.new('RGBA',(W,H));d=ImageDraw.Draw(layer,'RGBA')
+        if kind in ('sun','cloud','moon'):
+            if daylight:
+                d.ellipse((245,155,355,265),fill=(255,196,83,120))
+            else:
+                d.ellipse((250,160,325,235),fill=(224,231,244,115))
+        # Rozmyte warstwy chmur w górnej połowie.
+        for i in range(8):
+            x=((i*117+19)%520)-80;y=150+(i*43)%220
+            shade=175 if daylight else 112
+            d.ellipse((x-105,y-34,x+115,y+33),fill=(shade,shade+5,min(255,shade+15),26 if kind=='sun' else 52))
+        layer=layer.filter(ImageFilter.GaussianBlur(25))
+        im=Image.alpha_composite(im.convert('RGBA'),layer)
+        if kind in ('rain','storm','snow'):
+            precip=Image.new('RGBA',(W,H));p=ImageDraw.Draw(precip,'RGBA')
+            for i in range(48):
+                x=(i*79+37)%W;y=(i*137+43)%510+90
+                if kind=='snow':p.ellipse((x,y,x+3,y+3),fill=(242,248,255,115))
+                else:p.line((x,y,x-9,y+25),fill=(125,190,245,70),width=2)
+            im=Image.alpha_composite(im,precip)
+        # Ciemna nakładka utrzymuje czytelność białych napisów.
+        overlay=Image.new('RGBA',(W,H),(0,0,0,92))
+        return Image.alpha_composite(im,overlay).convert('RGB')
+
+    def render(self):
+        current=self.data.get('current',{}) if self.data else {}
+        kind,_=weather_type(current.get('weather_code',2),current.get('is_day',1))
+        im=self.make_background(kind,current.get('is_day',1)) if self.theme=='graphic' else self.make_standard_background()
         d=ImageDraw.Draw(im)
         def centered(txt,y,size,color=WHITE,bold=False):
             f=font(size,bold);b=d.textbbox((0,0),txt,font=f);d.text(((W-(b[2]-b[0]))/2,y),txt,font=f,fill=color,stroke_width=0)
