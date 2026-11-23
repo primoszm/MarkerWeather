@@ -177,7 +177,7 @@ class Widget:
         def centered(txt,y,size,color=WHITE,bold=False):
             f=font(size,bold);b=d.textbbox((0,0),txt,font=f);d.text(((W-(b[2]-b[0]))/2,y),txt,font=f,fill=color,stroke_width=0)
         now=datetime.now();centered(now.strftime('%H:%M'),24,82,WHITE,True)
-        centered(self.city,145,27)
+        centered(self.city,138,27)
         current=self.data.get('current',{}) if self.data else {};daily=self.data.get('daily',{}) if self.data else {}
         kind,desc=weather_type(current.get('weather_code',2),current.get('is_day',1))
         if self.transition_from is not None:
@@ -197,24 +197,24 @@ class Widget:
                 d=ImageDraw.Draw(im)
         else:self.draw_icon(d,kind)
         if 'temperature_2m' in current:
-            centered(f"{round(current['temperature_2m'])}°C",350,76,WHITE,True)
-        else:centered('—°C',350,76,WHITE,True)
-        d.arc((85,435,315,455),180,355,fill=YELLOW,width=5)
-        centered(desc,452,21)
-        d.line((18,507,382,507),fill='#777777',width=1)
+            centered(f"{round(current['temperature_2m'])}°C",332,76,WHITE,True)
+        else:centered('—°C',332,76,WHITE,True)
+        d.arc((85,412,315,432),180,355,fill=YELLOW,width=5)
+        centered(desc,430,21)
+        d.line((18,482,382,482),fill='#777777',width=1)
         wind=round(current.get('wind_speed_10m',0));hum=round(current.get('relative_humidity_2m',0))
         chance=daily.get('precipitation_probability_max',[None])[0]
         sunrise=daily.get('sunrise',[''])[0][-5:];sunset=daily.get('sunset',[''])[0][-5:]
         vals=[('WIATR',f'{wind} km/h' if self.data else '—'),('OPADY',f'{chance}%' if chance is not None else '—'),('WILG.',f'{hum}%' if self.data else '—'),('SŁOŃCE',f'{sunrise}\n{sunset}' if sunrise else '—')]
         for i,(lab,val) in enumerate(vals):
             x=i*100+50
-            if i:d.line((i*100,515,i*100,587),fill='#777777',width=1)
-            self.draw_detail_icon(d,i,x,527)
-            f=font(13,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,541),lab,font=f,fill=YELLOW)
+            if i:d.line((i*100,492,i*100,579),fill='#777777',width=1)
+            self.draw_detail_icon(d,i,x,508)
+            f=font(13,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,531),lab,font=f,fill=YELLOW)
             for j,line in enumerate(val.split('\n')):
-                f2=font(15,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,560+j*17),line,font=f2,fill=WHITE)
+                f2=font(15,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,550+j*19),line,font=f2,fill=WHITE)
         # Prognoza na kolejne cztery dni (bez dnia dzisiejszego).
-        d.line((18,593,382,593),fill='#777777',width=1)
+        d.line((18,583,382,583),fill='#777777',width=1)
         dates=daily.get('time',[])
         codes=daily.get('weather_code',[])
         highs=daily.get('temperature_2m_max',[])
@@ -222,18 +222,18 @@ class Widget:
         weekdays=['Pon','Wt','Śr','Czw','Pt','Sob','Niedz']
         for i in range(4):
             j=i+1; x=50+i*100
-            if i:d.line((i*100,610,i*100,688),fill='#555555',width=1)
+            if i:d.line((i*100,599,i*100,690),fill='#555555',width=1)
             if j<len(dates):
                 try: day=weekdays[datetime.fromisoformat(dates[j]).weekday()]
                 except ValueError:day='—'
-                self.draw_small_icon(d,weather_type(codes[j] if j<len(codes) else 2,True)[0],x,642)
+                self.draw_small_icon(d,weather_type(codes[j] if j<len(codes) else 2,True)[0],x,632)
                 temp=f'{round(highs[j])}°' if j<len(highs) and highs[j] is not None else '—'
                 low=f'{round(lows[j])}°' if j<len(lows) and lows[j] is not None else ''
-                self.draw_centered(d,day,x,601,17,YELLOW,True)
-                self.draw_centered(d,temp,x,663,20,WHITE,True)
-                if low:self.draw_centered(d,low,x+28,670,11,'#aaaaaa')
-            else:self.draw_centered(d,'—',x,625,19,WHITE)
-        if self.error:centered(self.error[:32],486,13,YELLOW)
+                self.draw_centered(d,day,x,592,17,YELLOW,True)
+                self.draw_centered(d,temp,x,660,20,WHITE,True)
+                if low:self.draw_centered(d,low,x+28,667,11,'#aaaaaa')
+            else:self.draw_centered(d,'—',x,615,19,WHITE)
+        if self.error:centered(self.error[:32],469,13,YELLOW)
         self.tkimg=ImageTk.PhotoImage(im);self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
     def draw_centered(self,d,txt,x,y,size,color=WHITE,bold=False):
         f=font(size,bold);b=d.textbbox((0,0),txt,font=f)
@@ -311,6 +311,6 @@ class Widget:
         self.draw_weather_art(d,kind,x,y-4,0.31)
 
     def draw_icon(self,d,kind):
-        self.draw_weather_art(d,kind,200,263,1.25)
+        self.draw_weather_art(d,kind,200,248,1.25)
 
 if __name__=='__main__':Widget()
