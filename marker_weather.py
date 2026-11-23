@@ -210,9 +210,9 @@ class Widget:
             x=i*100+50
             if i:d.line((i*100,492,i*100,579),fill='#777777',width=1)
             self.draw_detail_icon(d,i,x,508)
-            f=font(13,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,531),lab,font=f,fill=YELLOW)
+            f=font(12,True);b=d.textbbox((0,0),lab,font=f);d.text((x-(b[2]-b[0])/2,531),lab,font=f,fill=YELLOW)
             for j,line in enumerate(val.split('\n')):
-                f2=font(15,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,550+j*19),line,font=f2,fill=WHITE)
+                f2=font(14,True);b2=d.textbbox((0,0),line,font=f2);d.text((x-(b2[2]-b2[0])/2,548+j*17),line,font=f2,fill=WHITE)
         # Prognoza na kolejne cztery dni (bez dnia dzisiejszego).
         d.line((18,583,382,583),fill='#777777',width=1)
         dates=daily.get('time',[])
