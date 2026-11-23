@@ -1,11 +1,52 @@
-import json, math, os, threading, urllib.parse, urllib.request, tkinter as tk, time
+import json, math, os, threading, urllib.parse, urllib.request, tkinter as tk, time, io, re, unicodedata
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont, ImageTk, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageTk, ImageFilter, ImageOps
 
 W,H=400,700
 WHITE='#f7f7f7'; YELLOW='#ffc928'
 BASE=os.path.dirname(os.path.abspath(__file__))
 CONFIG=os.path.join(os.path.expanduser('~'),'.marker_weather.json')
+PHOTO_CACHE=os.path.join(os.path.expanduser('~'),'.marker_weather_photos')
+PHOTO_TTL=7*24*3600
+COMMONS_API='https://commons.wikimedia.org/w/api.php'
+
+def city_key(city):
+    normalized=unicodedata.normalize('NFKD',city).encode('ascii','ignore').decode().lower()
+    return re.sub(r'[^a-z0-9_-]+','_',normalized).strip('_')[:65] or 'city'
+
+def commons_photo(city):
+    # Wikimedia Commons API, wyłącznie obrazy z otwartą licencją.
+    # Brak dopasowania -> zachowujemy dotychczasową panoramę rysowaną.
+    search=city+' skyline panorama cityscape'
+    params={'action':'query','generator':'search','gsrsearch':'filetype:bitmap '+search,
+            'gsrnamespace':6,'gsrlimit':20,'prop':'imageinfo','iiprop':'url|extmetadata|size',
+            'iiurlwidth':1000,'format':'json','formatversion':2}
+    data=fetch(COMMONS_API+'?'+urllib.parse.urlencode(params))
+    pages=data.get('query',{}).get('pages',[])
+    city_words=[city_key(w) for w in city.split() if len(w)>2]
+    for page in pages:
+        title=page.get('title','')
+        if not any(word in city_key(title) for word in city_words):continue
+        info=(page.get('imageinfo') or [{}])[0]
+        meta=info.get('extmetadata') or {}
+        license_name=(meta.get('LicenseShortName') or {}).get('value','').strip()
+        allowed=license_name.upper().startswith(('CC BY','CC0','PUBLIC DOMAIN','PD-'))
+        if not allowed:continue
+        url=info.get('thumburl') or info.get('url','')
+        if not url.startswith('https://'):continue
+        if not url.lower().split('?')[0].endswith(('.jpg','.jpeg','.png','.webp')):continue
+        req=urllib.request.Request(url,headers={'User-Agent':'MarkerWeather/2.0 (desktop weather widget; Wikimedia Commons attribution)'})
+        with urllib.request.urlopen(req,timeout=15) as response:
+            raw=response.read(8_000_001)
+        if len(raw)>8_000_000:continue
+        with Image.open(io.BytesIO(raw)) as photo:
+            if photo.width<400 or photo.height<300:continue
+            fitted=ImageOps.fit(photo.convert('RGB'),(W,H),method=Image.Resampling.LANCZOS,centering=(0.5,0.5))
+        return fitted,{'title':title,'license':license_name,
+                       'author':re.sub('<[^>]+>','',(meta.get('Artist') or {}).get('value',''))[:300],
+                       'source':info.get('descriptionurl','')}
+    return None
+
 
 def font(size, bold=False):
     candidates=[r'C:\Windows\Fonts\segoeprb.ttf' if bold else r'C:\Windows\Fonts\segoepr.ttf',r'C:\Windows\Fonts\comicbd.ttf' if bold else r'C:\Windows\Fonts\comic.ttf',r'C:\Windows\Fonts\seguisb.ttf',r'C:\Windows\Fonts\arial.ttf']
@@ -30,30 +71,77 @@ class Widget:
     def __init__(self):
         self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x700+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
         self.canvas=tk.Canvas(self.root,width=W,height=H,highlightthickness=0,bg='#111111');self.canvas.pack()
-        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None
+        self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.background_cache={};self.theme_fade_from=None;self.theme_fade_start=0;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None;self.photo=None;self.photo_meta=None;self.photo_city=None;self.photo_busy=False
         try:
             with open(CONFIG,encoding='utf8') as f:
-                c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))));self.theme=c.get('theme','standard') if c.get('theme','standard') in ('standard','graphic') else 'standard'
+                c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))));self.theme=c.get('theme','standard') if c.get('theme','standard') in ('standard','landscape','sky','city','graphic') else 'standard'
         except (OSError,ValueError,TypeError):pass
         self.root.attributes('-alpha',self.opacity/100)
         self.root.bind('<ButtonPress-1>',self.drag_start);self.root.bind('<B1-Motion>',self.drag_move)
         self.root.bind('<Button-3>',self.menu);self.root.bind('<Escape>',lambda e:self.root.destroy())
         self.root.bind('<Double-Button-1>',lambda e:self.change_city())
-        self.tkimg=None;self.tick();self.refresh();self.root.mainloop()
+        self.tkimg=None;self.tick();self.refresh();self.ensure_city_photo();self.root.mainloop()
     def drag_start(self,e):self.dx=e.x_root-self.root.winfo_x();self.dy=e.y_root-self.root.winfo_y()
     def drag_move(self,e):self.root.geometry(f'+{e.x_root-self.dx}+{e.y_root-self.dy}')
     def menu(self,e):
         m=tk.Menu(self.root,tearoff=0);m.add_command(label='Zmień miasto',command=self.change_city);m.add_command(label='Odśwież pogodę',command=self.refresh)
         appearance=tk.Menu(m,tearoff=0)
         appearance.add_command(label=('✓ ' if self.theme=='standard' else '   ')+'Standardowy — ciemny gradient',command=lambda:self.set_theme('standard'))
-        appearance.add_command(label=('✓ ' if self.theme=='graphic' else '   ')+'Graficzny — pogoda w tle',command=lambda:self.set_theme('graphic'))
+        for key,label in [('landscape','Krajobraz'),('sky','Niebo'),('city','Miasto')]:
+            appearance.add_command(label=('✓ ' if self.theme==key else '   ')+label,command=lambda k=key:self.set_theme(k))
         m.add_cascade(label='Wygląd aplikacji',menu=appearance)
+        if self.theme=='city':
+            m.add_command(label='Źródło zdjęcia miasta / licencja',command=self.photo_credit)
         m.add_command(label='Zawsze na wierzchu: '+('TAK' if self.top else 'NIE'),command=self.toggle_top);m.add_command(label='Przezroczystość…',command=self.opacity_dialog);m.add_separator();m.add_command(label='Zamknij',command=self.root.destroy)
         m.tk_popup(e.x_root,e.y_root)
     def set_theme(self,theme):
-        if theme not in ('standard','graphic'):return
+        if theme not in ('standard','landscape','sky','city'):return
         if theme!=self.theme:
-            self.theme=theme;self.save_config();self.render()
+            self.theme_fade_from=self.theme;self.theme_fade_start=time.monotonic()
+            self.theme=theme;self.save_config();self.ensure_city_photo();self.render()
+    def photo_credit(self):
+        from tkinter import messagebox
+        if not self.photo_meta:
+            messagebox.showinfo('Zdjęcie miasta','Brak fotografii. Wyświetlana jest lokalna ilustracja miasta.',parent=self.root)
+            return
+        m=self.photo_meta
+        messagebox.showinfo('Wikimedia Commons',
+            'Fotografia: '+m.get('title','')+'\\nAutor: '+m.get('author','')+
+            '\\nLicencja: '+m.get('license','')+'\\nŹródło: '+m.get('source',''),parent=self.root)
+
+    def ensure_city_photo(self):
+        if self.theme!='city' or self.photo_busy:return
+        city=self.city
+        if self.photo_city==city and self.photo is not None:return
+        self.photo_busy=True
+        def work():
+            photo=None;meta=None
+            try:
+                os.makedirs(PHOTO_CACHE,exist_ok=True)
+                base=os.path.join(PHOTO_CACHE,city_key(city))
+                path=base+'.jpg';info_path=base+'.json'
+                if os.path.isfile(path) and os.path.isfile(info_path):
+                    with open(info_path,encoding='utf-8') as f:meta=json.load(f)
+                    with Image.open(path) as img:photo=img.convert('RGB').copy()
+                # Po tygodniu spróbuj odświeżyć zdjęcie; stare pozostaje awaryjnie.
+                if photo is None or time.time()-os.path.getmtime(path)>PHOTO_TTL:
+                    result=commons_photo(city)
+                    if result:
+                        photo,meta=result
+                        photo.save(path,quality=88)
+                        with open(info_path,'w',encoding='utf-8') as f:json.dump(meta,f,ensure_ascii=False)
+            except Exception:
+                pass  # Internet niedostępny -> ilustracja lub ostatnia fotografia.
+            def apply_photo():
+                self.photo_busy=False
+                if self.city!=city:return
+                self.photo=photo;self.photo_meta=meta;self.photo_city=city
+                self.background_cache={k:v for k,v in self.background_cache.items() if k[0]!='city'}
+                self.render()
+            try:self.root.after(0,apply_photo)
+            except RuntimeError:pass
+        threading.Thread(target=work,daemon=True).start()
+
     def toggle_top(self):self.top=not self.top;self.root.attributes('-topmost',self.top)
     def save_config(self):
         try:
@@ -90,7 +178,8 @@ class Widget:
         threading.Thread(target=work,daemon=True).start()
     def set_city(self,name,lat,lon):
         self.city=name;self.lat=lat;self.lon=lon
-        self.save_config()
+        self.photo=None;self.photo_meta=None;self.photo_city=None;self.background_cache.clear()
+        self.save_config();self.ensure_city_photo()
         self.refresh()
     def set_error(self,msg):self.error=msg;self.busy=False;self.render()
     def refresh(self):
@@ -112,10 +201,10 @@ class Widget:
         if previous is not None and previous!=new_kind:
             self.transition_from=previous;self.transition_to=new_kind;self.transition_start=time.monotonic()
         self.last_kind=new_kind
-        self.render()
+        self.ensure_city_photo();self.render()
     def tick(self):
         self.render()
-        active=self.transition_from is not None and time.monotonic()-self.transition_start<1.5
+        active=(self.transition_from is not None and time.monotonic()-self.transition_start<1.5) or (self.theme_fade_from is not None and time.monotonic()-self.theme_fade_start<0.9)
         self.root.after(70 if active else 1000,self.tick)
     def make_standard_background(self):
         im=Image.new('RGB',(W,H));px=im.load()
@@ -169,10 +258,97 @@ class Widget:
         overlay=Image.new('RGBA',(W,H),(0,0,0,92))
         return Image.alpha_composite(im,overlay).convert('RGB')
 
+    def get_theme_background(self,theme,kind,is_day):
+        if theme=='graphic':theme='sky'  # kompatybilność ustawień ze starszą wersją
+        key=(theme,kind,bool(is_day),self.city if theme=='city' else '')
+        if key not in self.background_cache:
+            if len(self.background_cache)>32:self.background_cache.clear()
+            self.background_cache[key]=self.build_theme_background(theme,kind,is_day)
+        return self.background_cache[key].copy()
+
+    def build_theme_background(self,theme,kind,is_day):
+        if theme=='standard':return self.make_standard_background()
+        if theme=='city' and self.photo is not None and self.photo_city==self.city:
+            im=self.photo.copy().convert('RGBA')
+            tint=Image.new('RGBA',(W,H),(12,20,34,45 if is_day else 130))
+            im=Image.alpha_composite(im,tint)
+            # Deszcz, śnieg, mgła i nocna tonacja nakładane na fotografię.
+            effects=Image.new('RGBA',(W,H),(0,0,0,0))
+            fx=ImageDraw.Draw(effects,'RGBA')
+            if kind in ('rain','storm'):
+                for i in range(72):
+                    x=(i*73+29)%W;y=(i*131+47)%H
+                    fx.line((x,y,x-8,y+24),fill=(140,195,255,115),width=2)
+            elif kind=='snow':
+                for i in range(95):
+                    x=(i*97+19)%W;y=(i*137+51)%H
+                    fx.ellipse((x,y,x+3,y+3),fill=(250,252,255,175))
+            elif kind=='fog':
+                fx.rectangle((0,0,W,H),fill=(215,225,232,85))
+            elif kind in ('sun','moon') and is_day:
+                fx.ellipse((270,65,355,150),fill=(255,204,108,65))
+            im=Image.alpha_composite(im,effects)
+            im=Image.alpha_composite(im,Image.new('RGBA',(W,H),(0,0,0,85)))
+            return im.convert('RGB')
+        im=self.make_background(kind,is_day).convert('RGBA')
+        layer=Image.new('RGBA',(W,H),(0,0,0,0));d=ImageDraw.Draw(layer,'RGBA')
+        day=bool(is_day)
+        # Motywy Niebo i Krajobraz są ilustracjami; Miasto ma awaryjną ilustrację.
+        if theme=='sky':
+            # Chmury, poświata i gwiazdy bez horyzontu.
+            if not day:
+                for i in range(28):
+                    x=(i*137+31)%W;y=(i*73+19)%470
+                    d.ellipse((x,y,x+2,y+2),fill=(240,245,255,115))
+            for i in range(6):
+                x=(i*113-70)%520-50;y=110+(i*79)%380
+                d.ellipse((x-95,y-28,x+100,y+30),fill=(185,195,214,20 if day else 13))
+        elif theme=='landscape':
+            # Warstwowy horyzont, pagórki, drzewa i ziemia / śnieg.
+            d.polygon([(0,535),(70,475),(132,526),(218,449),(315,520),(400,473),(400,700),(0,700)],fill=(72,91,109,170) if day else (30,45,64,210))
+            d.polygon([(0,588),(98,520),(172,578),(266,499),(400,562),(400,700),(0,700)],fill=(43,65,69,220) if day else (19,33,44,235))
+            ground=(210,222,231,180) if kind=='snow' else ((34,65,47,210) if day else (14,31,34,235))
+            d.polygon([(0,610),(85,582),(190,610),(290,569),(400,606),(400,700),(0,700)],fill=ground)
+            for x in (24,65,340,375):
+                y=570+(x*7)%35
+                d.polygon([(x,y-55),(x-19,y-9),(x+19,y-9)],fill=(12,35,35,215))
+                d.rectangle((x-3,y-10,x+3,y+13),fill=(24,28,32,230))
+        elif theme=='city':
+            # Stylizowana panorama miasta; dla Gdańska dodajemy charakterystyczny żuraw i wieże.
+            skyline=(34,40,52,230) if day else (15,22,35,245)
+            for i in range(14):
+                x=i*34-8;h=40+(i*37)%75
+                d.rectangle((x,620-h,x+29,700),fill=skyline)
+                d.polygon([(x-3,620-h),(x+14,602-h),(x+32,620-h)],fill=skyline)
+                for wx in (x+8,x+19):
+                    for wy in range(630-h,676,21):
+                        if (wx+wy)%3:d.rectangle((wx,wy,wx+3,wy+6),fill=(250,186,99,135))
+            if 'gda' in self.city.lower():
+                # Uproszczona sylwetka Żurawia nad Motławą.
+                d.rectangle((178,490,214,660),fill=skyline)
+                d.polygon([(168,490),(196,463),(224,490)],fill=skyline)
+                d.line((210,492,245,510),fill=(28,33,44,255),width=9)
+                d.line((242,510,242,563),fill=(28,33,44,255),width=4)
+                d.rectangle((310,472,329,655),fill=skyline)
+                d.polygon([(303,472),(320,428),(336,472)],fill=skyline)
+            d.rectangle((0,660,400,700),fill=(17,31,46,185))
+            for i in range(20):
+                x=(i*53)%400
+                d.line((x,674+(i*11)%24,x+18,674+(i*11)%24),fill=(243,178,91,65),width=2)
+        im=Image.alpha_composite(im,layer)
+        # Ciemna nakładka dla kontrastu tekstu i prognozy.
+        shade=Image.new('RGBA',(W,H),(0,0,0,55 if theme=='sky' else 75))
+        return Image.alpha_composite(im,shade).convert('RGB')
+
     def render(self):
         current=self.data.get('current',{}) if self.data else {}
         kind,_=weather_type(current.get('weather_code',2),current.get('is_day',1))
-        im=self.make_background(kind,current.get('is_day',1)) if self.theme=='graphic' else self.make_standard_background()
+        day=current.get('is_day',1)
+        im=self.get_theme_background(self.theme,kind,day)
+        if self.theme_fade_from is not None:
+            t=min(1.0,(time.monotonic()-self.theme_fade_start)/0.9)
+            if t>=1.0:self.theme_fade_from=None
+            else:im=Image.blend(self.get_theme_background(self.theme_fade_from,kind,day),im,t)
         d=ImageDraw.Draw(im)
         def centered(txt,y,size,color=WHITE,bold=False):
             f=font(size,bold);b=d.textbbox((0,0),txt,font=f);d.text(((W-(b[2]-b[0]))/2,y),txt,font=f,fill=color,stroke_width=0)
