@@ -125,16 +125,16 @@ class Widget:
         inside.pack(fill='both',expand=True,padx=1,pady=1)
         inside.pack_propagate(True)
 
-        def row(text,icon,command,active=False):
+        def row(text,icon,command,active=False,indent=0):
             color=hover if active else bg
             f=tk.Frame(inside,bg=color,height=35)
             f.pack(fill='x',padx=10,pady=1)
             f.pack_propagate(False)
             symbol=tk.Label(f,text=icon,font=('Segoe UI Symbol',15),fg=blue if active else fg,
-                            bg=color,width=3,anchor='center')
-            symbol.pack(side='left')
-            label=tk.Label(f,text=text,font=('Segoe UI',11),fg=fg,bg=color,anchor='w')
-            label.pack(side='left',fill='both',expand=True,padx=4)
+                            bg=color,anchor='center',bd=0,padx=0,pady=0)
+            symbol.place(x=0,y=0,width=38,height=35)
+            label=tk.Label(f,text=text,font=('Segoe UI',11),fg=fg,bg=color,anchor='w',bd=0,padx=0,pady=0)
+            label.place(x=44+indent,y=0,relwidth=1,width=-44-indent,height=35)
             for w in (f,symbol,label):
                 w.bind('<Button-1>',lambda event,fn=command:fn())
             return f
@@ -151,34 +151,19 @@ class Widget:
                 ('standard','Standardowy',''),
                 ('landscape','Graficzny',''),
                 ('city','Miasto','')]:
-                f=tk.Frame(inside,bg=bg,height=35)
-                f.pack(fill='x',padx=12)
-                f.pack_propagate(False)
                 chosen=self.theme==key
-                dot=tk.Label(f,text='◉' if chosen else '◯',font=('Segoe UI Symbol',17),
-                             fg=blue if chosen else fg,bg=bg,width=3)
-                dot.pack(side='left',padx=(8,0))
-                name_label=tk.Label(f,text=name,font=('Segoe UI',11),fg=fg,bg=bg,anchor='w')
-                name_label.pack(side='left',fill='both',expand=True)
-                for w in (f,dot,name_label):
-                    w.bind('<Button-1>',lambda event,k=key:self.choose_menu_theme(k))
+                row(name,'◉' if chosen else '◯',lambda k=key:self.choose_menu_theme(k))
 
         tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=5)
         row('Zawsze na wierzchu  '+('✓' if self.top else '○'),'⌁',self.menu_toggle_top)
-        startup=tk.BooleanVar(master=panel,value=self.startup_enabled())
-        startup_row=tk.Checkbutton(inside,text='Autostart',variable=startup,
-            command=lambda:self.menu_toggle_startup(startup),font=('Segoe UI',10),justify='left',anchor='w',
-            bg=bg,fg=fg,selectcolor='#343a43',activebackground=hover,activeforeground=fg,
-            highlightthickness=0,bd=0,cursor='hand2')
-        startup_row.pack(fill='x',padx=20,pady=4)
-
+        row('Autostart  '+('✓' if self.startup_enabled() else '○'),'⏻',self.menu_toggle_startup)
 
         row('Wybierz miasto  '+('⌄' if self.city_open else '›'),'⌖',
             lambda:toggle('city_open'),self.city_open)
         if self.city_open:
             city_box=tk.Frame(inside,bg=bg)
             city_box.pack(fill='x',padx=22,pady=(3,7))
-            city_label=tk.Label(city_box,text='Wpisz nazwę miasta:',font=('Segoe UI',9),
+            city_label=tk.Label(city_box,text='Wpisz nazwę miasta:',font=('Segoe UI',11),
                                 fg=muted,bg=bg,anchor='w')
             city_label.pack(fill='x')
             city_entry=tk.Entry(city_box,font=('Segoe UI',11),bg='#343a43',fg=fg,
@@ -192,7 +177,7 @@ class Widget:
                     self.lookup(name)
             city_entry.bind('<Return>',submit_city)
             apply_btn=tk.Button(city_box,text='Ustaw miasto',command=submit_city,
-                                font=('Segoe UI',10),bg='#344e70',fg=fg,
+                                font=('Segoe UI',11),bg='#344e70',fg=fg,
                                 activebackground='#3a689c',activeforeground=fg,
                                 relief='flat',cursor='hand2')
             apply_btn.pack(anchor='e',pady=(1,0))
@@ -203,7 +188,7 @@ class Widget:
         if self.opacity_open:
             slider_line=tk.Frame(inside,bg=bg)
             slider_line.pack(fill='x',padx=18,pady=(0,7))
-            value=tk.Label(slider_line,text=f'{self.opacity}%',font=('Segoe UI',10),
+            value=tk.Label(slider_line,text=f'{self.opacity}%',font=('Segoe UI',11),
                            fg=muted,bg=bg,width=5)
             value.pack(side='right')
             def update_opacity(val):
@@ -220,21 +205,9 @@ class Widget:
             slider.pack(side='left')
 
         tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=5)
-        about_line=tk.Frame(inside,bg=bg,height=36)
-        about_line.pack(fill='x',padx=12)
-        about_line.pack_propagate(False)
-        about=tk.Button(about_line,text='ⓘ  O aplikacji',font=('Segoe UI',11),
-                        fg=fg,bg=bg,activebackground=hover,
-                        activeforeground=fg,relief='flat',bd=0,anchor='w',
-                        command=self.show_about,cursor='hand2')
-        about.pack(side='left',fill='both',expand=True)
+        row('O aplikacji','ⓘ',self.show_about)
         if self.theme=='city':
-            photo=tk.Button(about_line,text='ⓘ  Źródło zdjęcia',
-                            font=('Segoe UI',9),fg=fg,bg=bg,
-                            activebackground=hover,activeforeground=fg,
-                            relief='flat',bd=0,command=self.photo_credit,
-                            cursor='hand2')
-            photo.pack(side='right')
+            row('Źródło zdjęcia','ⓘ',self.photo_credit)
         row('Zamknij','✕',self.root.destroy)
 
         panel.update_idletasks()
@@ -286,13 +259,13 @@ class Widget:
             self.save_config()
         except OSError:pass
 
-    def menu_toggle_startup(self,var):
+    def menu_toggle_startup(self):
         from tkinter import messagebox
         try:
             if sys.platform!='win32':raise OSError('Autostart jest dostępny tylko w Windows.')
             import winreg
             with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\CurrentVersion\Run',0,winreg.KEY_SET_VALUE) as key:
-                if var.get():
+                if not self.startup_enabled():
                     winreg.SetValueEx(key,'MarkerWeather',0,winreg.REG_SZ,self.startup_command())
                 else:
                     try:winreg.DeleteValue(key,'MarkerWeather')
@@ -697,9 +670,9 @@ class Widget:
         # Przycisk odświeżania w miejscu wskazanym czerwonym prostokątem.
         # Mały symbol w prawym dolnym rogu sekcji opisu pogody.
         cx,cy=348,449
-        d.arc((cx-11,cy-11,cx+11,cy+11),start=40,end=325,
-              fill='#f3f5f8',width=3)
-        d.polygon([(cx+10,cy-11),(cx+13,cy-2),(cx+3,cy-5)],
+        d.arc((cx-8.8,cy-8.8,cx+8.8,cy+8.8),start=40,end=325,
+              fill='#f3f5f8',width=2)
+        d.polygon([(cx+8,cy-8.8),(cx+10.4,cy-1.6),(cx+2.4,cy-4)],
                   fill='#f3f5f8')
         self.tkimg=ImageTk.PhotoImage(im);self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.tkimg)
         # Niewidoczny obszar klikalny 38×38 px; nie zmienia układu widżetu.
