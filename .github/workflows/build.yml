@@ -18,7 +18,7 @@ jobs:
       - name: Zainstaluj zaleznosci
         run: python -m pip install --upgrade pip pillow pyinstaller
       - name: Zbuduj pojedynczy plik EXE
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name MarkerWeather --icon marker_weather.ico marker_weather.py
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name MarkerWeather --icon marker_weather.ico --version-file version_info.txt marker_weather.py
       - name: Udostepnij EXE
         uses: actions/upload-artifact@v4
         with:
