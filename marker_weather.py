@@ -1,3 +1,4 @@
+import sys, subprocess
 import json, math, os, threading, urllib.parse, urllib.request, tkinter as tk, time, io, re, unicodedata, random
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageTk, ImageFilter, ImageOps, ImageChops
@@ -78,10 +79,12 @@ class Widget:
         self.root=tk.Tk();self.root.title('Marker Weather');self.root.geometry('400x700+100+100');self.root.overrideredirect(True);self.root.attributes('-topmost',False)
         self.canvas=tk.Canvas(self.root,width=W,height=H,highlightthickness=0,bg='#111111');self.canvas.pack()
         self.city='Gdańsk';self.lat=54.352;self.lon=18.6466;self.data=None;self.error='';self.busy=False;self.top=False;self.opacity=100;self.theme='standard';self.background_cache={};self.theme_fade_from=None;self.theme_fade_start=0;self.old_kind=None;self.transition_start=0;self.transition_from=None;self.transition_to=None;self.last_kind=None;self.photo=None;self.photo_meta=None;self.photo_city=None;self.photo_busy=False;self.photo_request=0;self.menu_panel=None;self.appearance_open=True;self.city_open=False;self.opacity_open=False
+        self.startup_initialized=False
         try:
             with open(CONFIG,encoding='utf8') as f:
-                c=json.load(f);self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))));self.theme=c.get('theme','standard') if c.get('theme','standard') in ('standard','landscape','city') else 'standard'
+                c=json.load(f);self.startup_initialized=bool(c.get('startup_initialized',False));self.city=c.get('city',self.city);self.lat=c.get('lat',self.lat);self.lon=c.get('lon',self.lon);self.opacity=max(30,min(100,int(c.get('opacity',100))));self.theme=c.get('theme','standard') if c.get('theme','standard') in ('standard','landscape','city') else 'standard'
         except (OSError,ValueError,TypeError):pass
+        self.initialize_startup()
         self.root.attributes('-alpha',self.opacity/100)
         self.root.bind('<ButtonPress-1>',self.drag_start);self.root.bind('<B1-Motion>',self.drag_move)
         self.canvas.bind('<Button-1>',self.dismiss_menu)
@@ -162,6 +165,13 @@ class Widget:
 
         tk.Frame(inside,bg='#50545a',height=1).pack(fill='x',padx=12,pady=5)
         row('Zawsze na wierzchu  '+('✓' if self.top else '○'),'⌁',self.menu_toggle_top)
+        startup=tk.BooleanVar(master=panel,value=self.startup_enabled())
+        startup_row=tk.Checkbutton(inside,text='Autostart',variable=startup,
+            command=lambda:self.menu_toggle_startup(startup),font=('Segoe UI',10),justify='left',anchor='w',
+            bg=bg,fg=fg,selectcolor='#343a43',activebackground=hover,activeforeground=fg,
+            highlightthickness=0,bd=0,cursor='hand2')
+        startup_row.pack(fill='x',padx=20,pady=4)
+
 
         row('Wybierz miasto  '+('⌄' if self.city_open else '›'),'⌖',
             lambda:toggle('city_open'),self.city_open)
@@ -252,6 +262,46 @@ class Widget:
     def choose_menu_theme(self,theme):
         self.set_theme(theme)
         self.menu()
+
+    def startup_command(self):
+        args=[sys.executable] if getattr(sys,'frozen',False) else [sys.executable,os.path.abspath(__file__)]
+        return subprocess.list2cmdline(args)
+
+    def startup_enabled(self):
+        if sys.platform!='win32':return False
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\CurrentVersion\Run') as key:
+                value,_=winreg.QueryValueEx(key,'MarkerWeather')
+                return value==self.startup_command()
+        except OSError:return False
+
+    def initialize_startup(self):
+        if sys.platform!='win32' or self.startup_initialized or not getattr(sys,'frozen',False):return
+        import winreg
+        try:
+            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\CurrentVersion\Run',0,winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key,'MarkerWeather',0,winreg.REG_SZ,self.startup_command())
+            self.startup_initialized=True
+            self.save_config()
+        except OSError:pass
+
+    def menu_toggle_startup(self,var):
+        from tkinter import messagebox
+        try:
+            if sys.platform!='win32':raise OSError('Autostart jest dostępny tylko w Windows.')
+            import winreg
+            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\CurrentVersion\Run',0,winreg.KEY_SET_VALUE) as key:
+                if var.get():
+                    winreg.SetValueEx(key,'MarkerWeather',0,winreg.REG_SZ,self.startup_command())
+                else:
+                    try:winreg.DeleteValue(key,'MarkerWeather')
+                    except FileNotFoundError:pass
+            self.startup_initialized=True
+            self.save_config()
+        except OSError as exc:
+            messagebox.showerror('MarkerWeather',f'Nie udało się zmienić autostartu: {exc}',parent=self.root)
+        if self.menu_panel is not None: self.menu()
 
     def menu_toggle_top(self):
         self.toggle_top()
@@ -397,7 +447,7 @@ class Widget:
     def save_config(self):
         try:
             with open(CONFIG,'w',encoding='utf8') as f:
-                json.dump({'city':self.city,'lat':self.lat,'lon':self.lon,'opacity':self.opacity,'theme':self.theme},f,ensure_ascii=False)
+                json.dump({'city':self.city,'lat':self.lat,'lon':self.lon,'opacity':self.opacity,'theme':self.theme,'startup_initialized':self.startup_initialized},f,ensure_ascii=False)
         except OSError:pass
     def opacity_dialog(self):
         self.menu()
